@@ -97,9 +97,9 @@ pub fn start(cfg: WalletConfig) -> Result<(WalletHandle, u32), String> {
             };
             rt.block_on(async move {
                 match open(&cfg).await {
-                    Ok((mut wallet, pool, height)) => {
+                    Ok((wallet, pool, height)) => {
                         let _ = ready_tx.send(Ok(height));
-                        run(&mut wallet, &pool, cfg.interval, rx).await;
+                        run(wallet, &pool, cfg.interval, rx).await;
                     }
                     Err(e) => {
                         let _ = ready_tx.send(Err(e));
@@ -161,12 +161,13 @@ async fn open(cfg: &WalletConfig) -> Result<(ShieldWallet, Pool<impl Connector>,
 }
 
 async fn run<C: Connector>(
-    wallet: &mut ShieldWallet,
+    wallet: ShieldWallet,
     pool: &Pool<C>,
     interval: Duration,
     rx: mpsc::Receiver<Cmd>,
 ) {
     let net = wallet.network();
+    let mut slot = Some(wallet);
     let mut report = Report::default();
     let mut txids: BTreeSet<String> = BTreeSet::new();
     let mut next_cycle = tokio::time::Instant::now();
@@ -175,15 +176,19 @@ async fn run<C: Connector>(
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
                 Cmd::NextLanding(reply) => {
-                    let res = wallet.next_landing().map(|l| LandingInfo {
+                    let res = slot
+                        .as_mut()
+                        .ok_or_else(|| "wallet is busy".to_string())
+                        .and_then(|w| w.next_landing().map_err(|e| e.to_string()));
+                    let res = res.map(|l| LandingInfo {
                         transparent: l.transparent_string(&net),
                         unified: l.unified_string(&net),
                         index: u32::try_from(l.index).unwrap_or(u32::MAX),
                     });
-                    let _ = reply.send(res.map_err(|e| e.to_string()));
+                    let _ = reply.send(res);
                 }
                 Cmd::Report(reply) => {
-                    fill(&mut report, wallet, &txids);
+                    fill(&mut report, slot.as_ref(), &txids);
                     let _ = reply.send(report.clone());
                 }
                 Cmd::SyncNow(reply) => sync_requests.push(reply),
@@ -192,7 +197,7 @@ async fn run<C: Connector>(
         if !sync_requests.is_empty() || tokio::time::Instant::now() >= next_cycle {
             report.cycles += 1;
             report.syncing = true;
-            match cycle(wallet, pool).await {
+            match cycle(&mut slot, pool).await {
                 Ok((height, sent)) => {
                     report.synced_height = Some(height);
                     report.last_error = None;
@@ -205,7 +210,7 @@ async fn run<C: Connector>(
             }
             report.syncing = false;
             next_cycle = tokio::time::Instant::now() + interval;
-            fill(&mut report, wallet, &txids);
+            fill(&mut report, slot.as_ref(), &txids);
             for reply in sync_requests {
                 let _ = reply.send(report.clone());
             }
@@ -214,25 +219,38 @@ async fn run<C: Connector>(
     }
 }
 
-fn fill(report: &mut Report, wallet: &ShieldWallet, txids: &BTreeSet<String>) {
-    let net = wallet.network();
-    report.landings = wallet
-        .known_landings()
-        .map(|v| v.iter().map(|a| encode_transparent(&net, a)).collect())
-        .unwrap_or_default();
+fn fill(report: &mut Report, wallet: Option<&ShieldWallet>, txids: &BTreeSet<String>) {
+    if let Some(wallet) = wallet {
+        let net = wallet.network();
+        report.landings = wallet
+            .known_landings()
+            .map(|v| v.iter().map(|a| encode_transparent(&net, a)).collect())
+            .unwrap_or_default();
+    }
     report.shield_txids = txids.iter().cloned().collect();
 }
 
 async fn cycle<C: Connector>(
-    wallet: &mut ShieldWallet,
+    slot: &mut Option<ShieldWallet>,
     pool: &Pool<C>,
 ) -> Result<(u32, Vec<String>), String> {
+    let wallet = slot.as_mut().ok_or("wallet is busy")?;
     let tip = wallet.sync(pool).await.map_err(|e| e.to_string())?;
     let from = wallet.known_landings().map_err(|e| e.to_string())?;
     if from.is_empty() {
         return Ok((u32::from(tip), vec![]));
     }
-    match wallet.shield(&from) {
+    // Proving takes seconds of CPU. It runs on a blocking thread so this
+    // runtime keeps serving network streams, Tor circuits and commands.
+    let mut w = slot.take().ok_or("wallet is busy")?;
+    let (w, shielded) = tokio::task::spawn_blocking(move || {
+        let r = w.shield(&from);
+        (w, r)
+    })
+    .await
+    .map_err(|e| format!("proving thread: {e}"))?;
+    *slot = Some(w);
+    match shielded {
         Ok(txs) => {
             let mut sent = Vec::new();
             for (txid, raw) in txs {
