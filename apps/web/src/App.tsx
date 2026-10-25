@@ -228,7 +228,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   let hint: string | null = null;
   if (error) hint = error;
   else if (serverOff) hint = hosted.known ? "This server does not offer the hosted path. Pick your own wallet." : "Checking whether this server offers the hosted path.";
-  else if (browserOff) hint = "This page was built without a Zcash wallet server, so the browser wallet is off. Pick your own wallet.";
+  else if (browserOff) hint = "This page was built without a Zcash wallet server, so the one-time wallet is off. Pick your own Zcash wallet.";
   else if (same) hint = "Same token on the same chain. Pick something else to get.";
   else if (planError) hint = planError;
   else if (destCheck && !destCheck.ok) hint = destCheck.text;
@@ -258,7 +258,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         return;
       }
       if (custody === "browser") {
-        if (!config.lwdGrpcWebUrl || !zec) throw new Error("The browser wallet needs a Zcash wallet server.");
+        if (!config.lwdGrpcWebUrl || !zec) throw new Error("The one-time wallet needs a Zcash wallet server.");
         const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl);
         try {
           const landing = await wallet.nextLanding();
@@ -357,16 +357,16 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
     >
       <CardHead tab="in" onTab={(t) => t === "out" && onSendOut()} mode={mode} modes={MODES} onMode={setMode} slippage={slippage} slippages={SLIPPAGE_BPS} onSlippage={setSlippage} />
       <Keeper
-        label="Lands in"
+        label="Held by"
         value={custody}
         onChange={(c) => { setCustody(c); setDest(""); setError(null); }}
-        options={[{ value: "own", title: "My wallet" }, { value: "browser", title: "This tab" }, { value: "server", title: "Unpair server" }]}
+        options={[{ value: "own", title: "My Zcash wallet" }, { value: "browser", title: "One-time wallet" }, { value: "server", title: "Unpair server" }]}
         warn={custody === "server"}
         note={custody === "server"
           ? "Our server holds the coins between the swaps and sees both ends. You can close the tab and come back with the link."
           : custody === "browser"
-            ? "A Zcash wallet runs in this tab for this one swap and pays out itself. Unpair never holds your coins. Keep the tab open, or save the recovery file."
-            : "ZEC lands in your own shielded wallet. Unpair never holds your coins in this mode. Move it on later with Send out."}
+            ? "A fresh Zcash wallet, made in this tab for this one swap. It pays out itself. Unpair never holds your coins. Keep the tab open, or save the recovery file."
+            : "ZEC lands in your own Zcash wallet app, shielded. Unpair never holds your coins in this mode. Move it on later with Send out."}
       />
       <Legs
         {...(custody !== "own" ? { onFlip: () => { setInId(outId); setOutId(inId); setDest(""); setRefund(""); } } : {})}
@@ -403,7 +403,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>
       )}
       {custody === "browser" && !browserOff && (
-        <p className="fine">The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
+        <p className="fine">The one-time wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
       )}
       <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
       <p className="fine">
