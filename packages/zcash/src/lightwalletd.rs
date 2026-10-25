@@ -7,7 +7,8 @@
 
 use std::time::Duration;
 
-use tonic::transport::{Channel, ClientTlsConfig, Endpoint};
+#[cfg(not(target_family = "wasm"))]
+use tonic::transport::{ClientTlsConfig, Endpoint};
 use zcash_client_backend::proto::service::compact_tx_streamer_client::CompactTxStreamerClient;
 use zcash_client_backend::proto::service::{
     ChainSpec, GetAddressUtxosArg, GetAddressUtxosReply, RawTransaction, SendResponse, TreeState,
@@ -17,7 +18,24 @@ use zcash_protocol::consensus::{BlockHeight, Network};
 
 use crate::error::Error;
 
-pub type Client = CompactTxStreamerClient<Channel>;
+/// The gRPC transport: a TLS channel natively, gRPC-web over fetch in the browser.
+#[cfg(not(target_family = "wasm"))]
+pub type Transport = tonic::transport::Channel;
+#[cfg(target_family = "wasm")]
+pub type Transport = tonic_web_wasm_client::Client;
+
+pub type Client = CompactTxStreamerClient<Transport>;
+
+/// `Send + Sync` where threads exist; nothing in the browser, where futures
+/// are single-threaded and `!Send`.
+#[cfg(not(target_family = "wasm"))]
+pub trait MaybeSend: Send + Sync {}
+#[cfg(not(target_family = "wasm"))]
+impl<T: Send + Sync> MaybeSend for T {}
+#[cfg(target_family = "wasm")]
+pub trait MaybeSend {}
+#[cfg(target_family = "wasm")]
+impl<T> MaybeSend for T {}
 
 /// Public mainnet servers. Operators and uptime change; keep this list short
 /// and let deployments override it.
@@ -37,19 +55,39 @@ pub fn default_endpoints(network: Network) -> Vec<String> {
 }
 
 /// How a gRPC channel is opened. Clearnet here; `tor::TorLightwalletd` implements
-/// the same shape over arti.
-#[async_trait::async_trait]
-pub trait Connector: Send + Sync {
+/// the same shape over arti, and `WebConnector` over gRPC-web.
+#[cfg_attr(not(target_family = "wasm"), async_trait::async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait::async_trait(?Send))]
+pub trait Connector: MaybeSend {
     async fn connect(&self, endpoint: &str) -> Result<Client, Error>;
 }
 
+/// gRPC-web over the browser's fetch. The endpoint is the base URL of a
+/// gRPC-web proxy in front of lightwalletd; browsers cannot speak gRPC.
+/// The proxy sees the caller's IP and the block ranges asked for, never a key.
+#[cfg(target_family = "wasm")]
+#[derive(Clone, Debug, Default)]
+pub struct WebConnector;
+
+#[cfg(target_family = "wasm")]
+#[async_trait::async_trait(?Send)]
+impl Connector for WebConnector {
+    async fn connect(&self, endpoint: &str) -> Result<Client, Error> {
+        Ok(CompactTxStreamerClient::new(
+            tonic_web_wasm_client::Client::new(endpoint.trim_end_matches('/').to_string()),
+        ))
+    }
+}
+
 /// Direct TLS connection. Leaks the caller's IP to the server.
+#[cfg(not(target_family = "wasm"))]
 #[derive(Clone, Debug)]
 pub struct ClearnetConnector {
     pub connect_timeout: Duration,
     pub request_timeout: Duration,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl Default for ClearnetConnector {
     fn default() -> Self {
         Self {
@@ -59,6 +97,7 @@ impl Default for ClearnetConnector {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[async_trait::async_trait]
 impl Connector for ClearnetConnector {
     async fn connect(&self, endpoint: &str) -> Result<Client, Error> {

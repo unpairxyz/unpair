@@ -7,20 +7,22 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-zcash_client_backend = { version = "0.25", features = ["lightwalletd-tonic-tls-webpki-roots", "lightwalletd-tonic-transport", "orchard", "transparent-inputs", "sync"] }
-zcash_client_sqlite = { version = "0.23", features = ["orchard", "transparent-inputs"] }
-zcash_primitives = { version = "0.31", features = ["transparent-inputs"] }
+zcash_client_backend = { version = "0.25", features = ["lightwalletd-tonic", "orchard", "transparent-inputs", "sync"] }
+zcash_client_sqlite = { version = "0.23", default-features = false, features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { version = "0.31", default-features = false, features = ["std", "circuits", "transparent-inputs"] }
 zcash_keys = { version = "0.17", features = ["orchard", "sapling", "transparent-inputs", "unstable"] }
 zcash_protocol = "0.11"
 zcash_address = "0.14"
 zip321 = "0.10"
-zcash_proofs = { version = "0.31", features = ["download-params", "local-prover", "multicore"] }
+zcash_proofs = { version = "0.31", default-features = false, features = ["local-prover"] }
 zcash_transparent = "0.11"
+sapling-crypto = { version = "0.9", default-features = false, features = ["circuit"] }
+jubjub = "0.11"
+bls12_381 = "0.9"
 orchard = "0.16"
 zip32 = "0.3"
-tonic = { version = "0.14", features = ["transport", "tls-ring", "tls-webpki-roots"] }
+tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 prost = "0.14"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 rand_core = "0.10"
 secrecy = "0.8"
 thiserror = "2"
@@ -30,13 +32,31 @@ rand = { version = "0.10", features = ["std", "sys_rng", "thread_rng"] }
 nonempty = "0.11"
 rusqlite = { version = "0.37", features = ["bundled"] }
 hex = "0.4"
-
 async-trait = "0.1"
 http = "1"
 
+# Native: TLS gRPC transport, parameter download, multicore proving.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+zcash_client_backend = { version = "0.25", features = ["lightwalletd-tonic-tls-webpki-roots", "lightwalletd-tonic-transport"] }
+zcash_client_sqlite = { version = "0.23", features = ["multicore"] }
+zcash_primitives = { version = "0.31", features = ["multicore"] }
+zcash_proofs = { version = "0.31", features = ["download-params", "multicore"] }
+tonic = { version = "0.14", features = ["transport", "tls-ring", "tls-webpki-roots"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+# Browser: gRPC-web over fetch, Web Crypto randomness, JS clock. SQLite is
+# compiled to WebAssembly by the vendored rusqlite (see vendor/rusqlite).
+[target.'cfg(target_family = "wasm")'.dependencies]
+tonic-web-wasm-client = "0.9"
+js-sys = "0.3"
+getrandom3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+getrandom4 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+time = { version = "0.3", features = ["wasm-bindgen"] }
+uuid = { version = "1", features = ["js"] }
+
 [features]
 default = []
-# Tor via arti. Heavy build. Enables `tor::TorLightwalletd`.
+# Tor via arti. Heavy build. Native only. Enables `tor::TorLightwalletd`.
 tor = ["zcash_client_backend/tor"]
 
 [dev-dependencies]
