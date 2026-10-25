@@ -372,7 +372,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       <p className={custody === "server" ? "custody-note warn" : "custody-note"}>
         {custody === "server"
           ? "Unpair's server holds your coins between the two swaps and can see both ends. You can close the tab and come back with the link."
-          : "Your own Zcash wallet receives the ZEC into the shielded pool. Unpair holds nothing. You send it on from your wallet when you like."}
+          : "Your own Zcash wallet receives the ZEC into the shielded pool. Unpair never holds your coins in this mode. You send it on from your wallet when you like."}
       </p>
 
       <div className="box pay">
