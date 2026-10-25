@@ -25,7 +25,6 @@ use zcash_client_backend::proto::service::TreeState;
 use zcash_client_backend::sync;
 #[cfg(not(target_family = "wasm"))]
 use zcash_client_backend::util::SystemClock;
-#[cfg(not(target_family = "wasm"))]
 use zcash_client_backend::wallet::{Note, OvkPolicy};
 use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_client_sqlite::{AccountUuid, WalletDb};
