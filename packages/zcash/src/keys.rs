@@ -22,7 +22,8 @@ pub struct Seed(SecretVec<u8>);
 impl Seed {
     /// Seed from a BIP-39 phrase. Zcash wallets use an empty passphrase.
     pub fn from_phrase(phrase: &str) -> Result<Self, Error> {
-        let m = Mnemonic::<English>::from_phrase(phrase).map_err(|e| Error::Mnemonic(e.to_string()))?;
+        let m =
+            Mnemonic::<English>::from_phrase(phrase).map_err(|e| Error::Mnemonic(e.to_string()))?;
         Ok(Seed(SecretVec::new(m.to_seed("").to_vec())))
     }
 
@@ -50,9 +51,15 @@ impl Seed {
 }
 
 /// Derive the unified spending key for `account`.
-pub fn spending_key<P: Parameters>(params: &P, seed: &Seed, account: u32) -> Result<UnifiedSpendingKey, Error> {
-    let account = AccountId::try_from(account).map_err(|_| Error::Derivation("account index out of range".into()))?;
-    UnifiedSpendingKey::from_seed(params, seed.expose(), account).map_err(|e| Error::Derivation(format!("{e:?}")))
+pub fn spending_key<P: Parameters>(
+    params: &P,
+    seed: &Seed,
+    account: u32,
+) -> Result<UnifiedSpendingKey, Error> {
+    let account = AccountId::try_from(account)
+        .map_err(|_| Error::Derivation("account index out of range".into()))?;
+    UnifiedSpendingKey::from_seed(params, seed.expose(), account)
+        .map_err(|e| Error::Derivation(format!("{e:?}")))
 }
 
 /// A landing address and the shielded receiver it will be swept into.
@@ -88,9 +95,15 @@ pub fn landing_at(ufvk: &UnifiedFullViewingKey, j: DiversifierIndex) -> Result<L
         .transparent()
         .ok_or_else(|| Error::Address("unified address has no transparent receiver".into()))?;
     if !ua.has_orchard() {
-        return Err(Error::Address("unified address has no Orchard receiver".into()));
+        return Err(Error::Address(
+            "unified address has no Orchard receiver".into(),
+        ));
     }
-    Ok(Landing { index, transparent, unified: ua })
+    Ok(Landing {
+        index,
+        transparent,
+        unified: ua,
+    })
 }
 
 /// Encode a transparent address for display.
@@ -117,7 +130,10 @@ mod tests {
 
     #[test]
     fn rejects_bad_phrase() {
-        assert!(matches!(Seed::from_phrase("not a phrase").err(), Some(Error::Mnemonic(_))));
+        assert!(matches!(
+            Seed::from_phrase("not a phrase").err(),
+            Some(Error::Mnemonic(_))
+        ));
     }
 
     #[test]
@@ -137,7 +153,9 @@ mod tests {
         assert!(t.starts_with("t1"), "{t}");
         let u = a.unified_string(&Network::MainNetwork);
         assert!(u.starts_with("u1"), "{u}");
-        assert!(a.unified_string(&Network::TestNetwork).starts_with("utest1"));
+        assert!(a
+            .unified_string(&Network::TestNetwork)
+            .starts_with("utest1"));
     }
 
     #[test]

@@ -8,7 +8,10 @@ use zip32::DiversifierIndex;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let phrase = std::env::var("UNPAIR_PHRASE").expect("set UNPAIR_PHRASE to a BIP-39 phrase");
-    let count: usize = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+    let count: usize = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
     let network = Network::MainNetwork;
     let seed = Seed::from_phrase(&phrase)?;
     let ufvk = spending_key(&network, &seed, 0)?.to_unified_full_viewing_key();

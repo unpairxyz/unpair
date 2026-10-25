@@ -1,0 +1,44 @@
+[package]
+name = "unpair-api"
+version = "0.1.0"
+description = "Unpair API: screening, signed quotes, status, and the optional self-host shielding worker."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "unpair-api"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["json", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs"] }
+tower = "0.5"
+tower-http = { version = "0.7", features = ["cors", "trace", "limit", "timeout", "set-header"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.23"
+hex = "0.4"
+rand = { version = "0.10", features = ["std", "sys_rng", "thread_rng"] }
+rand_core = "0.10"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+dotenvy = "0.15"
+unpair-zcash = { path = "../../packages/zcash", optional = true }
+zcash_protocol = { version = "0.11", optional = true }
+zip32 = { version = "0.3", optional = true }
+
+[features]
+default = ["wallet"]
+# Self-host shielding worker. Needs a seed on disk. Off for the hosted instance.
+wallet = ["dep:unpair-zcash", "dep:zcash_protocol", "dep:zip32"]
+tor = ["wallet", "unpair-zcash/tor"]
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

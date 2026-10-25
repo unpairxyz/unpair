@@ -52,7 +52,10 @@ pub struct ClearnetConnector {
 
 impl Default for ClearnetConnector {
     fn default() -> Self {
-        Self { connect_timeout: Duration::from_secs(15), request_timeout: Duration::from_secs(60) }
+        Self {
+            connect_timeout: Duration::from_secs(15),
+            request_timeout: Duration::from_secs(60),
+        }
     }
 }
 
@@ -64,7 +67,9 @@ impl Connector for ClearnetConnector {
             .connect_timeout(self.connect_timeout)
             .timeout(self.request_timeout);
         if endpoint.starts_with("https://") {
-            ep = ep.tls_config(ClientTlsConfig::new().with_webpki_roots()).map_err(Error::lwd)?;
+            ep = ep
+                .tls_config(ClientTlsConfig::new().with_webpki_roots())
+                .map_err(Error::lwd)?;
         }
         let channel = ep.connect().await.map_err(Error::lwd)?;
         Ok(CompactTxStreamerClient::new(channel))
@@ -94,7 +99,12 @@ impl<C: Connector> Pool<C> {
             return Err(Error::Lightwalletd("no endpoints configured".into()));
         }
         let order = (0..endpoints.len()).collect();
-        Ok(Self { endpoints, connector, max_tip_lag: 3, order: std::sync::Mutex::new(order) })
+        Ok(Self {
+            endpoints,
+            connector,
+            max_tip_lag: 3,
+            order: std::sync::Mutex::new(order),
+        })
     }
 
     pub fn endpoints(&self) -> &[String] {
@@ -102,7 +112,10 @@ impl<C: Connector> Pool<C> {
     }
 
     fn current_order(&self) -> Vec<usize> {
-        self.order.lock().map(|o| o.clone()).unwrap_or_else(|_| (0..self.endpoints.len()).collect())
+        self.order
+            .lock()
+            .map(|o| o.clone())
+            .unwrap_or_else(|_| (0..self.endpoints.len()).collect())
     }
 
     fn demote(&self, idx: usize) {
@@ -125,9 +138,17 @@ impl<C: Connector> Pool<C> {
                         height: Some(BlockHeight::from_u32(resp.into_inner().height as u32)),
                         error: None,
                     },
-                    Err(e) => TipReport { endpoint: ep.clone(), height: None, error: Some(e.to_string()) },
+                    Err(e) => TipReport {
+                        endpoint: ep.clone(),
+                        height: None,
+                        error: Some(e.to_string()),
+                    },
                 },
-                Err(e) => TipReport { endpoint: ep.clone(), height: None, error: Some(e.to_string()) },
+                Err(e) => TipReport {
+                    endpoint: ep.clone(),
+                    height: None,
+                    error: Some(e.to_string()),
+                },
             };
             out.push(report);
         }
@@ -140,12 +161,20 @@ impl<C: Connector> Pool<C> {
         let reports = self.tips().await;
         let best = reports.iter().filter_map(|r| r.height).max();
         let Some(best) = best else {
-            let last = reports.iter().filter_map(|r| r.error.clone()).next_back().unwrap_or_default();
+            let last = reports
+                .iter()
+                .filter_map(|r| r.error.clone())
+                .next_back()
+                .unwrap_or_default();
             return Err(Error::AllEndpointsFailed(last));
         };
         let healthy: Vec<String> = reports
             .iter()
-            .filter(|r| r.height.is_some_and(|h| u64::from(u32::from(best)) - u64::from(u32::from(h)) <= self.max_tip_lag))
+            .filter(|r| {
+                r.height.is_some_and(|h| {
+                    u64::from(u32::from(best)) - u64::from(u32::from(h)) <= self.max_tip_lag
+                })
+            })
             .map(|r| r.endpoint.clone())
             .collect();
         // Reorder so healthy endpoints go first.
@@ -153,8 +182,15 @@ impl<C: Connector> Pool<C> {
             o.sort_by_key(|&i| !healthy.contains(&self.endpoints[i]));
         }
         if healthy.len() == 1 && reports.iter().filter(|r| r.height.is_some()).count() > 1 {
-            let worst = reports.iter().filter_map(|r| r.height).min().unwrap_or(best);
-            tracing::warn!(lag = u32::from(best) - u32::from(worst), "lightwalletd endpoints disagree on the tip");
+            let worst = reports
+                .iter()
+                .filter_map(|r| r.height)
+                .min()
+                .unwrap_or(best);
+            tracing::warn!(
+                lag = u32::from(best) - u32::from(worst),
+                "lightwalletd endpoints disagree on the tip"
+            );
         }
         Ok((best, healthy))
     }
@@ -195,7 +231,11 @@ impl<C: Connector> Pool<C> {
 
     pub async fn latest_height(&self) -> Result<BlockHeight, Error> {
         self.with_client(|mut c| async move {
-            let b = c.get_latest_block(ChainSpec {}).await.map_err(Error::lwd)?.into_inner();
+            let b = c
+                .get_latest_block(ChainSpec {})
+                .await
+                .map_err(Error::lwd)?
+                .into_inner();
             Ok(BlockHeight::from_u32(b.height as u32))
         })
         .await
@@ -203,19 +243,34 @@ impl<C: Connector> Pool<C> {
 
     pub async fn tree_state(&self, height: BlockHeight) -> Result<TreeState, Error> {
         self.with_client(|mut c| async move {
-            let id = zcash_client_backend::proto::service::BlockId { height: u64::from(u32::from(height)), hash: vec![] };
+            let id = zcash_client_backend::proto::service::BlockId {
+                height: u64::from(u32::from(height)),
+                hash: vec![],
+            };
             Ok(c.get_tree_state(id).await.map_err(Error::lwd)?.into_inner())
         })
         .await
     }
 
     /// Unspent outputs on the given transparent addresses (encoded strings).
-    pub async fn address_utxos(&self, addresses: Vec<String>, start_height: BlockHeight) -> Result<Vec<GetAddressUtxosReply>, Error> {
+    pub async fn address_utxos(
+        &self,
+        addresses: Vec<String>,
+        start_height: BlockHeight,
+    ) -> Result<Vec<GetAddressUtxosReply>, Error> {
         self.with_client(|mut c| {
             let addresses = addresses.clone();
             async move {
-                let arg = GetAddressUtxosArg { addresses, start_height: u64::from(u32::from(start_height)), max_entries: 0 };
-                Ok(c.get_address_utxos(arg).await.map_err(Error::lwd)?.into_inner().address_utxos)
+                let arg = GetAddressUtxosArg {
+                    addresses,
+                    start_height: u64::from(u32::from(start_height)),
+                    max_entries: 0,
+                };
+                Ok(c.get_address_utxos(arg)
+                    .await
+                    .map_err(Error::lwd)?
+                    .into_inner()
+                    .address_utxos)
             }
         })
         .await
@@ -227,9 +282,19 @@ impl<C: Connector> Pool<C> {
         self.with_client(|mut c| {
             let raw = raw.clone();
             async move {
-                let resp = c.send_transaction(RawTransaction { data: raw, height: 0 }).await.map_err(Error::lwd)?.into_inner();
+                let resp = c
+                    .send_transaction(RawTransaction {
+                        data: raw,
+                        height: 0,
+                    })
+                    .await
+                    .map_err(Error::lwd)?
+                    .into_inner();
                 if resp.error_code != 0 {
-                    return Err(Error::Lightwalletd(format!("broadcast rejected ({}): {}", resp.error_code, resp.error_message)));
+                    return Err(Error::Lightwalletd(format!(
+                        "broadcast rejected ({}): {}",
+                        resp.error_code, resp.error_message
+                    )));
                 }
                 Ok(resp)
             }
@@ -240,7 +305,14 @@ impl<C: Connector> Pool<C> {
     /// Fetch a transaction by id. Used to confirm a shield was mined.
     pub async fn transaction(&self, txid: [u8; 32]) -> Result<RawTransaction, Error> {
         self.with_client(|mut c| async move {
-            Ok(c.get_transaction(TxFilter { block: None, index: 0, hash: txid.to_vec() }).await.map_err(Error::lwd)?.into_inner())
+            Ok(c.get_transaction(TxFilter {
+                block: None,
+                index: 0,
+                hash: txid.to_vec(),
+            })
+            .await
+            .map_err(Error::lwd)?
+            .into_inner())
         })
         .await
     }
@@ -252,7 +324,10 @@ mod tests {
 
     #[test]
     fn defaults_are_https() {
-        for ep in default_endpoints(Network::MainNetwork).iter().chain(default_endpoints(Network::TestNetwork).iter()) {
+        for ep in default_endpoints(Network::MainNetwork)
+            .iter()
+            .chain(default_endpoints(Network::TestNetwork).iter())
+        {
             assert!(ep.starts_with("https://"), "{ep}");
         }
     }
@@ -272,12 +347,22 @@ mod tests {
 
     #[tokio::test]
     async fn all_failures_report_last_error_and_rotate() {
-        let pool = Pool::new(vec!["https://a".into(), "https://b".into()], FailingConnector).unwrap();
+        let pool = Pool::new(
+            vec!["https://a".into(), "https://b".into()],
+            FailingConnector,
+        )
+        .unwrap();
         let err = pool.latest_height().await.unwrap_err();
-        assert!(matches!(err, Error::AllEndpointsFailed(ref m) if m.contains("https://b")), "{err}");
+        assert!(
+            matches!(err, Error::AllEndpointsFailed(ref m) if m.contains("https://b")),
+            "{err}"
+        );
         let tips = pool.tips().await;
         assert_eq!(tips.len(), 2);
         assert!(tips.iter().all(|t| t.height.is_none() && t.error.is_some()));
-        assert!(matches!(pool.checked_tip().await, Err(Error::AllEndpointsFailed(_))));
+        assert!(matches!(
+            pool.checked_tip().await,
+            Err(Error::AllEndpointsFailed(_))
+        ));
     }
 }
