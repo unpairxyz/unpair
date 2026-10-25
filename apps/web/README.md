@@ -42,11 +42,13 @@ Environment values are public and end up in the bundle:
 4. Send the deposit to the address shown. The page polls the route until the
    swap lands, is refunded, or fails.
 
-The Zcash address must be transparent, because the route pays transparent only.
-Use a fresh address from a wallet that shields on receipt, such as Zodl, Zingo or
-Zkool. The page refuses unified and Sapling addresses with a reason. This page is
-the bring-your-own-wallet front end. The Unpair app holds the key itself and
-needs no other wallet; the page points to it as the other choice.
+The Zcash address can be a shielded-only unified address, which the route pays
+straight into Ironwood, or a transparent address, which your wallet shields on
+receipt. A unified address that also carries a transparent receiver is paid to
+that receiver. Sapling-only addresses are refused with a reason. The page decodes
+unified addresses itself to tell these apart. This page is the bring-your-own-wallet
+front end. The Unpair app holds the key itself and needs no other wallet; the
+page points to it as the other choice.
 
 ## Choices on the page
 

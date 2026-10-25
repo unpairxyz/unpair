@@ -17,8 +17,9 @@ somewhere, and we put it on your device.
 - Unpair's server holds no key that can receive user funds. There is no hosted
   wallet and no landing-address service. The server screens addresses, signs
   quotes and relays status. That is all it can do.
-- The web page is an optional front end for people who already run a Zcash wallet
-  that shields on receipt. It never sees a key.
+- The web page is an optional front end for people who already run a Zcash wallet.
+  It never sees a key. Give it a shielded-only unified address and the route pays
+  straight into the pool; give it a transparent address and your wallet shields it.
 
 A swap that ends in ZEC makes the app your Zcash wallet, so the app requires a
 seed backup first. A pass-through swap, from one asset through shielded ZEC to
@@ -30,7 +31,8 @@ that funds in transit need it.
 | Observer | Fast mode, one hop | Quiet mode, two hops | Notes |
 |---|---|---|---|
 | Anyone watching public chains | Sees the deposit on the source chain. Sees a payout enter a pool of about 4 million ZEC. Can match only by amount and timing. | Same, and rounded amounts plus a random release delay break amount and timing matches. | Strong from day one. |
-| The route operator for a hop (NEAR Intents today) | Sees the sender, the recipient landing address and the amount of its own leg. Unlinkability against it is its logging policy. | Each operator sees one leg only. Hop one sees a payout into the pool. Hop two sees a source with no history. | Quiet mode uses a different operator for each hop when one is available. |
+| The route operator for a hop (NEAR Intents today) | Sees the sender, the recipient address and the amount of its own leg. Unlinkability against it is its logging policy. | Each operator sees one leg only. Hop one sees a payout into the pool. Hop two sees a source with no history. | Quiet mode uses a different operator for each hop when one is available. |
+| Anyone, for a payout straight into the pool | The route's bridge encrypts the shielded output with an all-zero outgoing key, so the amount and the receiving address of that one payout are readable by anyone. The note is in the pool, but the swap itself is public. | Same for hop one. Hop two spends from the pool, and that spend is unlinkable. | This is why each address is used once, and why the unlinking comes from the later spend, not from the payout. |
 | Unpair | Nothing that links the two ends. Quotes are requested from your device. The server sees the addresses it screens, one request at a time, and never a deposit and a destination together. | Nothing. | We are the party that would receive a subpoena. We design so there is nothing to hand over. |
 | Your network provider | Sees that you reached a route operator or a lightwalletd server. | Same. | The app uses Tor for lightwalletd and broadcast by default. Nym is optional. |
 
@@ -56,7 +58,7 @@ Nothing else. No hosted wallet, no own node, no own chain, no token.
 ## What we do about it
 
 - A fresh landing address per swap. Never reused.
-- Transparent payouts are shielded into Ironwood in one step, on your device.
+- Payouts go straight into Ironwood when the route can pay a shielded-only address. Transparent payouts are shielded into Ironwood in one step, on your device.
 - Refund addresses are never shielded addresses posted to a public chain.
 - Quiet mode rounds the amount and releases after a random delay with a mean of about 3 hours and a cap of 12.
 - Every fee is shown before the trade and capped in code.
@@ -64,7 +66,9 @@ Nothing else. No hosted wallet, no own node, no own chain, no token.
 
 ## Routes we have not added
 
-Maya pays shielded Zcash natively, which would remove the transparent landing
-step. It would also move the in-flight trust from NEAR Intents to Maya, and Maya
-Protocol was exploited in August 2026. If Maya is added it will be an optional route that you
-pick, never the default.
+Maya Protocol pays shielded Zcash, but into Sapling, a pool about ten times
+smaller than Ironwood. It would also move the in-flight trust from NEAR Intents
+to Maya, and Maya was exploited and halted from 18 August to 1 October 2026. If
+Maya is added it will be an optional route that you pick, never the default.
+THORChain carries ZEC, transparent only, in a pool a few dozen ZEC deep. Custodial
+swap services are out because they can hold funds.

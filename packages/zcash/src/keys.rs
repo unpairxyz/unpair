@@ -106,6 +106,25 @@ pub fn landing_at(ufvk: &UnifiedFullViewingKey, j: DiversifierIndex) -> Result<L
     })
 }
 
+/// A unified address at diversifier index `j` with only an Orchard receiver.
+/// A route that can pay Ironwood directly, such as 1Click, pays this and the
+/// value lands shielded with no transparent step. It must have no transparent
+/// receiver, or the route may pay that one instead.
+pub fn orchard_only_at(
+    ufvk: &UnifiedFullViewingKey,
+    j: DiversifierIndex,
+) -> Result<(UnifiedAddress, DiversifierIndex), Error> {
+    let (ua, index) = ufvk
+        .find_address(j, UnifiedAddressRequest::ORCHARD)
+        .map_err(|e| Error::Address(format!("{e:?}")))?;
+    if ua.transparent().is_some() || ua.sapling().is_some() || !ua.has_orchard() {
+        return Err(Error::Address(
+            "expected an Orchard-only unified address".into(),
+        ));
+    }
+    Ok((ua, index))
+}
+
 /// Encode a transparent address for display.
 pub fn encode_transparent<P: Parameters>(params: &P, addr: &TransparentAddress) -> String {
     encode_transparent_address_p(params, addr)
