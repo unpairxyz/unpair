@@ -36,7 +36,7 @@ export interface AmountPlan {
 }
 
 /** Parse the amount field and apply the quiet-mode grid. */
-export function planAmount(input: string, token: TokenInfo, mode: Mode): AmountPlan | { error: string } {
+export function planAmount(input: string, token: TokenInfo, mode: Mode, round = true): AmountPlan | { error: string } {
   let requested: bigint;
   try {
     requested = parseUnits(input, token.decimals);
@@ -44,7 +44,7 @@ export function planAmount(input: string, token: TokenInfo, mode: Mode): AmountP
     return { error: `Enter an amount of ${token.symbol} with at most ${token.decimals} decimals.` };
   }
   if (requested <= 0n) return { error: "Enter an amount above zero." };
-  if (mode === "fast") return { requested, send: requested, heldBack: 0n };
+  if (mode === "fast" || !round) return { requested, send: requested, heldBack: 0n };
   const r = roundDownCoarse(requested);
   return { requested, send: r.amount, heldBack: r.remainder };
 }
@@ -61,6 +61,14 @@ export const STATE_COPY: Record<UnpairState, { label: string; text: string }> = 
   landed: { label: "Landed", text: "ZEC arrived at your Zcash address. Your wallet moves it into the shielded pool from here." },
   refunded: { label: "Refunded", text: "The swap did not complete. Funds went back to your refund address." },
   failed: { label: "Failed", text: "The route reported an error. Nothing was taken. Check the refund address for your deposit." },
+};
+
+/** Words for the states when ZEC leaves the pool instead of entering it. */
+export const SEND_OUT_COPY: Partial<Record<UnpairState, { label: string; text: string }>> = {
+  quote: { label: "Quote", text: "Check the numbers, then pay the route from your shielded wallet." },
+  waiting_for_deposit: { label: "Waiting for your payment", text: "Send exactly the amount shown from your Zcash wallet to the route's address before the deadline." },
+  routing: { label: "Routing", text: "Payment seen. The route is filling your swap." },
+  landed: { label: "Delivered", text: "The route paid your destination address." },
 };
 
 export function stateOf(status: StatusResponse | null): UnpairState {
