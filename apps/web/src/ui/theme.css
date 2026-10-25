@@ -96,8 +96,16 @@ body{margin:0;background:#EDEDED;color:var(--ink);font:16px/1.5 var(--ui);-webki
 .kv{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .big{font:700 26px var(--mono)}
 .chip{font:400 16px var(--sfx);letter-spacing:.06em;background:var(--spot);color:#000;padding:2px 10px;border:2px solid #000;transform:rotate(2deg)}
+.addrwrap{display:flex;gap:12px;align-items:flex-start}
+.addrwrap .qr{flex:0 0 112px;width:112px;height:112px;border:3px solid #000;background:#fff;padding:4px;box-sizing:border-box}
+.addrwrap .qr svg{display:block;width:100%;height:100%}
+.addrtext{flex:1;min-width:0}
 .addr{font:600 14px/1.6 var(--mono);word-break:break-all;color:#6A6A6A}
 .addr b{color:#000}
+.addr span{margin-right:.45em}
+.addr span:last-of-type{margin-right:0}
+.copy{margin-top:8px}
+@media (max-width:480px){.addrwrap{flex-direction:column}.addrwrap .qr{flex-basis:auto;width:140px;height:140px}}
 
 /* status: a four-panel strip */
 .koma{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
