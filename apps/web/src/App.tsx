@@ -41,6 +41,7 @@ import {
   Mascot,
   Masthead,
   QuoteMark,
+  Qr,
   Sprites,
   StatusStrip,
   Story,
@@ -654,12 +655,12 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
           </div>
         </div>
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {direction === "out" ? "ZEC" : token.symbol}</div></div>
-        <div className="box"><span className="lbl">{direction === "out" ? "To the route's Zcash address, once" : "To this address, once"}</span><Address value={depositAddress} /></div>
+        <div className="box"><span className="lbl">{direction === "out" ? "To the route's Zcash address, once" : "To this address, once"}</span><Address value={depositAddress} qr /></div>
         {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
         {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
         <Mascot>{direction === "out" ? "Pay from your shielded balance, not from a transparent one, or the hop is linkable." : "I'm waiting at the edge. Send from any wallet you control."}</Mascot>
         {api && signed && !parked && <button type="button" className="mini" onClick={() => void park()}>Check on your phone</button>}
-        {parked && <div className="box"><span className="lbl">Open this on your phone</span><Address value={parked} /><p className="fine">Anyone with the link sees this quote. It lives on the server for two hours.</p></div>}
+        {parked && <div className="box"><span className="lbl">Scan this with your phone</span>{parked.startsWith("http") && <Qr value={parked} label="QR code to open this quote on your phone" />}<Address value={parked} /><p className="fine">The phone must show the same mark and code. Anyone with the link sees this quote. It lives on the server for two hours.</p></div>}
         <GoButton onClick={() => { setSent(true); onStage("seen"); }}>I SENT IT!</GoButton>
         <p className="fine"><button type="button" className="link" onClick={onDone}>Start over</button></p>
       </div>
@@ -740,7 +741,7 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
           <div><b>{verified ? "Quote signed by Unpair" : "Quote from the server"}</b> <span className="code">{shortCode(seed)}</span></div>
         </div>
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{amountIn}</div></div>
-        <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} /></div>
+        <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} qr /></div>
         {swap.deposit_memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{swap.deposit_memo}</div></div>}
         <p className="fine">Pay by {new Date(swap.deposit_deadline_unix * 1000).toLocaleString()}.</p>
         <div className="box"><span className="lbl">Your link to this swap</span><Address value={link} /><p className="fine">Anyone with the link sees the progress, the deposit address and your receiving address. Keep it to yourself.</p></div>
