@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
-use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -20,8 +19,6 @@ use crate::error::ApiError;
 use crate::oneclick::{addresses_to_screen, AppFee, OneClick};
 use crate::screening::{geofence, Screener, Verdict};
 use crate::sign::QuoteSigner;
-#[cfg(feature = "wallet")]
-use crate::wallet_worker::WalletHandle;
 
 pub struct AppState {
     pub bind: std::net::SocketAddr,
@@ -29,8 +26,6 @@ pub struct AppState {
     pub screener: Screener,
     pub signer: QuoteSigner,
     pub oneclick: OneClick,
-    #[cfg(feature = "wallet")]
-    pub wallet: Option<WalletHandle>,
     pub started_at: std::time::Instant,
 }
 
@@ -55,8 +50,6 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/screen", post(screen))
         .route("/v1/quote", post(quote))
         .route("/v1/status/{deposit_address}", get(status))
-        .route("/v1/landings/next", post(landing_next))
-        .route("/v1/landings", get(landings))
         .layer(cors)
         .layer(RequestBodyLimitLayer::new(32 * 1024))
         .layer(TimeoutLayer::with_status_code(
@@ -97,7 +90,6 @@ struct PublicConfig {
     geofence: Vec<String>,
     quote_signing_pubkey: String,
     oneclick_keyed: bool,
-    wallet: bool,
     modes: [&'static str; 2],
 }
 
@@ -111,20 +103,8 @@ async fn config(State(s): State<Shared>) -> Json<PublicConfig> {
         geofence: c.geofence.blocked_countries.clone(),
         quote_signing_pubkey: s.signer.public_key_hex(),
         oneclick_keyed: s.oneclick.has_key(),
-        wallet: wallet_on(&s),
         modes: ["fast", "quiet"],
     })
-}
-
-fn wallet_on(_s: &Shared) -> bool {
-    #[cfg(feature = "wallet")]
-    {
-        _s.wallet.is_some()
-    }
-    #[cfg(not(feature = "wallet"))]
-    {
-        false
-    }
 }
 
 #[derive(Serialize)]
@@ -247,83 +227,6 @@ async fn status(
     ))
 }
 
-fn require_operator(s: &Shared, headers: &HeaderMap) -> Result<(), ApiError> {
-    let expected = s
-        .config
-        .operator_token
-        .as_deref()
-        .ok_or(ApiError::FeatureOff)?;
-    let given = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or(ApiError::Unauthorized)?;
-    if constant_time_eq(given.as_bytes(), expected.as_bytes()) {
-        Ok(())
-    } else {
-        Err(ApiError::Unauthorized)
-    }
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-#[derive(Serialize)]
-pub struct LandingOut {
-    pub transparent: String,
-    pub unified: String,
-    pub index: u32,
-}
-
-/// Operator only. A fresh landing address from the self-host wallet.
-async fn landing_next(
-    State(s): State<Shared>,
-    headers: HeaderMap,
-) -> Result<Json<LandingOut>, ApiError> {
-    require_operator(&s, &headers)?;
-    #[cfg(feature = "wallet")]
-    {
-        let w = s.wallet.as_ref().ok_or(ApiError::FeatureOff)?;
-        let l = w.next_landing().await?;
-        Ok(Json(LandingOut {
-            transparent: l.transparent,
-            unified: l.unified,
-            index: l.index,
-        }))
-    }
-    #[cfg(not(feature = "wallet"))]
-    {
-        Err(ApiError::FeatureOff)
-    }
-}
-
-/// Operator only. Landings issued by this server and what happened to them.
-async fn landings(
-    State(s): State<Shared>,
-    headers: HeaderMap,
-) -> Result<impl IntoResponse, ApiError> {
-    require_operator(&s, &headers)?;
-    #[cfg(feature = "wallet")]
-    {
-        let w = s.wallet.as_ref().ok_or(ApiError::FeatureOff)?;
-        Ok((
-            StatusCode::OK,
-            Json(
-                serde_json::to_value(w.report().await?)
-                    .map_err(|e| ApiError::Internal(e.to_string()))?,
-            ),
-        ))
-    }
-    #[cfg(not(feature = "wallet"))]
-    {
-        Err::<(StatusCode, Json<Value>), _>(ApiError::FeatureOff)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,7 +237,7 @@ mod tests {
 
     use crate::config::{GeofenceConfig, ScreeningConfig};
 
-    fn test_config(operator_token: Option<&str>) -> Config {
+    fn test_config() -> Config {
         Config {
             bind: "127.0.0.1:0".parse().unwrap(),
             allowed_origins: vec!["https://unpair.xyz".into()],
@@ -349,8 +252,6 @@ mod tests {
                 country_header: "cf-ipcountry".into(),
                 require_header: false,
             },
-            wallet: None,
-            operator_token: operator_token.map(String::from),
         }
     }
 
@@ -360,8 +261,6 @@ mod tests {
             screener: Screener::Off,
             signer: QuoteSigner::from_seed(cfg.signing_seed.unwrap()),
             oneclick: OneClick::new(cfg.oneclick_url.clone(), None).unwrap(),
-            #[cfg(feature = "wallet")]
-            wallet: None,
             started_at: std::time::Instant::now(),
             config: cfg,
         });
@@ -375,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_and_config() {
-        let app = build_app(test_config(None));
+        let app = build_app(test_config());
         let r = app
             .clone()
             .oneshot(Request::get("/health").body(Body::empty()).unwrap())
@@ -391,7 +290,6 @@ mod tests {
         assert_eq!(j["fee_bps"], 50);
         assert_eq!(j["fee_cap_bps"], 100);
         assert_eq!(j["screening"], "off");
-        assert_eq!(j["wallet"], false);
         assert_eq!(
             j["quote_signing_pubkey"],
             QuoteSigner::from_seed([3u8; 32]).public_key_hex()
@@ -400,7 +298,7 @@ mod tests {
 
     #[tokio::test]
     async fn screen_applies_geofence_then_screener() {
-        let app = build_app(test_config(None));
+        let app = build_app(test_config());
         let req = Request::post("/v1/screen")
             .header("content-type", "application/json")
             .header("cf-ipcountry", "KP")
@@ -421,7 +319,7 @@ mod tests {
 
     #[tokio::test]
     async fn quote_is_refused_in_blocked_region_before_any_upstream_call() {
-        let app = build_app(test_config(None));
+        let app = build_app(test_config());
         let req = Request::post("/v1/quote")
             .header("content-type", "application/json")
             .header("cf-ipcountry", "kp")
@@ -433,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn quote_requires_addresses() {
-        let app = build_app(test_config(None));
+        let app = build_app(test_config());
         let req = Request::post("/v1/quote")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"recipient":"b"}"#))
@@ -445,56 +343,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn operator_endpoints_need_token_and_feature() {
-        let app = build_app(test_config(None));
-        let r = app
-            .oneshot(
-                Request::post("/v1/landings/next")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::NOT_IMPLEMENTED);
-
-        let app = build_app(test_config(Some("a-long-operator-token-for-tests")));
-        let r = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/landings/next")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
-        let r = app
-            .clone()
-            .oneshot(
-                Request::post("/v1/landings/next")
-                    .header("authorization", "Bearer wrong")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
-        let r = app
-            .oneshot(
-                Request::get("/v1/landings")
-                    .header("authorization", "Bearer a-long-operator-token-for-tests")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        // Right token, but no wallet configured on this server.
-        assert_eq!(r.status(), StatusCode::NOT_IMPLEMENTED);
-    }
-
-    #[tokio::test]
     async fn cors_only_for_allowed_origins() {
-        let app = build_app(test_config(None));
+        let app = build_app(test_config());
         let r = app
             .clone()
             .oneshot(

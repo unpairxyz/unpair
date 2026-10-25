@@ -12,12 +12,11 @@ WorkingDirectory=/var/lib/unpair
 Restart=on-failure
 RestartSec=5
 CPUWeight=50
-MemoryMax=768M
+MemoryMax=256M
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/unpair
 ReadOnlyPaths=/etc/unpair
 
 [Install]
