@@ -24,16 +24,6 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
         <div className="three">
           <div className="half">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
-              <rect x="6" y="2" width="30" height="46" rx="6" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" />
-              <path d="M16 7 h10" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" />
-              <g transform="translate(9 17)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="24" height="15" /></g>
-              <g transform="translate(52 12) rotate(20)"><circle cx="9" cy="9" r="8" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="var(--ink)" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" /></g>
-            </svg>
-            <b className="ht">MY ZCASH WALLET</b>
-            <p>Your own wallet app, like Zodl or Zingo. The ZEC lands there. Only you hold the key.</p>
-          </div>
-          <div className="half">
-            <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
               <rect x="4" y="6" width="62" height="42" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" />
               <path d="M4 16 h62" stroke="var(--ink)" strokeWidth="3" />
               <path d="M10 6 v-4 h22 l3 4" fill="var(--paper)" stroke="var(--ink)" strokeWidth="2.5" strokeLinejoin="round" />
@@ -50,7 +40,17 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
               <g transform="translate(2 8)"><use href="#fishBody" style={{ ["--fill" as string]: "var(--paper)" }} width="60" height="38" /><use href="#eyeSleep" width="60" height="38" /></g>
             </svg>
             <b className="ht">UNPAIR SERVER</b>
-            <p><span className="hl">We hold the coins between the swaps and see both ends. You can close the tab.</span></p>
+            <p><span className="hl">We hold the coins between the swaps, mixed with other people's coins. Harder to trace on chain, but we see both ends. You can close the tab.</span></p>
+          </div>
+          <div className="half">
+            <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
+              <rect x="6" y="2" width="30" height="46" rx="6" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" />
+              <path d="M16 7 h10" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" />
+              <g transform="translate(9 17)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="24" height="15" /></g>
+              <g transform="translate(52 12) rotate(20)"><circle cx="9" cy="9" r="8" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="var(--ink)" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" /></g>
+            </svg>
+            <b className="ht">MY ZCASH WALLET</b>
+            <p>Your own wallet app, like Zodl or Zingo. The ZEC lands there. Only you hold the key.</p>
           </div>
         </div>
       </div></section>
