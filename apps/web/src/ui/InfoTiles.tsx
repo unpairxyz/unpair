@@ -15,20 +15,34 @@ export function QuoteMark({ seed, size = 62, className }: { seed: string; size?:
   return <canvas ref={cv} className={className} role="img" aria-label="Quote mark" style={{ width: size, height: size }} />;
 }
 
-/** Three compact tiles under the story: custody, Fast VS Quiet, the mark and the fee. */
+/** Tiles under the story: who holds the coins (full width), then Fast VS Quiet, and the mark with the fee. */
 export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePercent?: string; capPercent?: string }) {
   return (
     <div className="info3">
-      <section className="p"><div className="in">
+      <section className="p keepp"><div className="in">
         <h3>WHO HOLDS THE COINS?</h3>
-        <div className="two">
+        <div className="three">
           <div className="half">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
-              <g transform="translate(4 4)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="64" height="40" /><use href="#eyeHappy" width="64" height="40" /></g>
-              <g transform="translate(78 8) rotate(20)"><circle cx="9" cy="9" r="8" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="var(--ink)" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" /></g>
+              <rect x="6" y="2" width="30" height="46" rx="6" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" />
+              <path d="M16 7 h10" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" />
+              <g transform="translate(9 17)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="24" height="15" /></g>
+              <g transform="translate(52 12) rotate(20)"><circle cx="9" cy="9" r="8" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="var(--ink)" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" /></g>
             </svg>
-            <b className="ht">MY WALLET</b>
-            <p>The ZEC lands in your own Zcash wallet, or in a wallet in this tab. We never hold it.</p>
+            <b className="ht">MY ZCASH WALLET</b>
+            <p>Your own wallet app, like Zodl or Zingo. The ZEC lands there. Only you hold the key.</p>
+          </div>
+          <div className="half">
+            <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
+              <rect x="4" y="6" width="62" height="42" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" />
+              <path d="M4 16 h62" stroke="var(--ink)" strokeWidth="3" />
+              <path d="M10 6 v-4 h22 l3 4" fill="var(--paper)" stroke="var(--ink)" strokeWidth="2.5" strokeLinejoin="round" />
+              <circle cx="58" cy="11" r="2" fill="var(--ink)" />
+              <g transform="translate(18 23)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="34" height="21" /></g>
+              <text x="74" y="36" fontFamily="Bangers, Impact, sans-serif" fontSize="24" fill="var(--ink)">x1</text>
+            </svg>
+            <b className="ht">ONE-TIME WALLET</b>
+            <p>A fresh Zcash wallet, made in this tab for one swap. Keep the tab open, or save the recovery file. We never hold the key.</p>
           </div>
           <div className="half tone">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
@@ -36,7 +50,7 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
               <g transform="translate(2 8)"><use href="#fishBody" style={{ ["--fill" as string]: "var(--paper)" }} width="60" height="38" /><use href="#eyeSleep" width="60" height="38" /></g>
             </svg>
             <b className="ht">UNPAIR SERVER</b>
-            <p><span className="hl">We hold the coins between swaps and see both ends. You can close the tab.</span></p>
+            <p><span className="hl">We hold the coins between the swaps and see both ends. You can close the tab.</span></p>
           </div>
         </div>
       </div></section>
