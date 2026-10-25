@@ -9,6 +9,7 @@ import {
   type TokenInfo,
 } from "@unpair/sdk";
 import { loadConfig } from "./config";
+import { ApiClient, ApiError, verifySignedQuote } from "./lib/api";
 import { checkZcashAddress, describeCheck, type AddressCheck } from "./lib/zcashAddress";
 import {
   MODE_COPY,
@@ -28,8 +29,15 @@ const client = new OneClickClient({
   fee: config.fee,
   transport: clearnetTransport(),
 });
+const api = config.apiUrl ? new ApiClient(config.apiUrl) : null;
+if (api && !config.apiPubkey) {
+  console.warn("VITE_API_URL is set without VITE_API_PUBKEY; signed quotes cannot be verified and will be refused.");
+}
 
-type Step = { kind: "form" } | { kind: "quoted"; quote: QuoteResponse; send: bigint; token: TokenInfo } | { kind: "tracking"; quote: QuoteResponse; token: TokenInfo; status: StatusResponse | null; error: string | null };
+type Step =
+  | { kind: "form" }
+  | { kind: "quoted"; quote: QuoteResponse; send: bigint; token: TokenInfo; verified: boolean | null }
+  | { kind: "tracking"; quote: QuoteResponse; token: TokenInfo; status: StatusResponse | null; error: string | null };
 
 export function App() {
   const [mode, setMode] = useState<Mode>("fast");
@@ -86,23 +94,46 @@ export function App() {
     if (!token || !zec || !plan) return;
     setBusy(true);
     setFormError(null);
+    const request = {
+      swapType: "EXACT_INPUT" as const,
+      slippageTolerance: 100,
+      originAsset: token.assetId,
+      depositType: "ORIGIN_CHAIN" as const,
+      destinationAsset: zec.assetId,
+      amount: plan.send.toString(),
+      refundTo: refundTo.trim(),
+      refundType: "ORIGIN_CHAIN" as const,
+      recipient: destination.trim(),
+      recipientType: "DESTINATION_CHAIN" as const,
+      deadline: new Date(Date.now() + 15 * 60_000),
+    };
     try {
-      const quote = await client.quote({
-        swapType: "EXACT_INPUT",
-        slippageTolerance: 100,
-        originAsset: token.assetId,
-        depositType: "ORIGIN_CHAIN",
-        destinationAsset: zec.assetId,
-        amount: plan.send.toString(),
-        refundTo: refundTo.trim(),
-        refundType: "ORIGIN_CHAIN",
-        recipient: destination.trim(),
-        recipientType: "DESTINATION_CHAIN",
-        deadline: new Date(Date.now() + 15 * 60_000),
-      });
-      setStep({ kind: "quoted", quote, send: plan.send, token });
+      if (api) {
+        // Screening first. A refused address never reaches the route.
+        for (const [address, chain] of [
+          [request.refundTo, token.blockchain],
+          [request.recipient, "zec"],
+        ] as const) {
+          const v = await api.screen(address, chain);
+          if (!v.allowed) {
+            setFormError(v.reason ?? "This address cannot be used with Unpair.");
+            return;
+          }
+        }
+        const signed = await api.quote({ ...request, dry: false, deadline: request.deadline.toISOString() });
+        const verified = config.apiPubkey ? await verifySignedQuote(signed, config.apiPubkey) : null;
+        if (verified === false) {
+          setFormError("This quote did not come from the Unpair API key this page trusts. Do not send funds. You may be on a copied site.");
+          return;
+        }
+        setStep({ kind: "quoted", quote: signed.quote, send: plan.send, token, verified });
+      } else {
+        const quote = await client.quote(request);
+        setStep({ kind: "quoted", quote, send: plan.send, token, verified: null });
+      }
     } catch (e) {
-      setFormError(e instanceof OneClickError ? describeOneClickError(e) : e instanceof Error ? e.message : String(e));
+      if (e instanceof ApiError) setFormError(e.message);
+      else setFormError(e instanceof OneClickError ? describeOneClickError(e) : e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -186,7 +217,7 @@ export function App() {
       {step.kind === "tracking" && <TrackingView step={step} onDone={reset} />}
 
       <footer>
-        Open source, MIT. Unpair holds no funds. Quotes are requested from your browser. Each route operator sees its own leg.{" "}
+        Open source, MIT. Unpair holds no funds. {api ? "Addresses are screened and quotes are signed by the Unpair API." : "Quotes are requested from your browser."} Each route operator sees its own leg.{" "}
         <a href="https://github.com/unpairxyz/unpair" rel="noreferrer">Source and threat model</a>.
       </footer>
     </main>
@@ -226,7 +257,9 @@ function QuoteView({ step, mode, onBack, onAccept }: { step: Extract<Step, { kin
           </>
         )}
       </dl>
-      <p className="hint">The quote is signed by the route. Keep this page open until the swap lands.</p>
+      {step.verified === true && <p className="hint ok">Signed by the Unpair API. Addresses were screened.</p>}
+      {step.verified === null && api && <p className="hint warn">This page has no pinned API key, so the quote could not be verified.</p>}
+      <p className="hint">The quote is also signed by the route. Keep this page open until the swap lands.</p>
       <button type="button" className="primary" onClick={onAccept}>Show deposit address</button>
       <p className="hint"><button type="button" className="link" onClick={onBack}>Back</button></p>
     </section>
@@ -248,7 +281,7 @@ function TrackingView({ step, onDone }: { step: Extract<Step, { kind: "tracking"
     let alive = true;
     const tick = async () => {
       try {
-        const s = await client.status(depositAddress, q.depositMemo);
+        const s = api ? await api.status(depositAddress, q.depositMemo) : await client.status(depositAddress, q.depositMemo);
         if (alive) {
           setStatus(s);
           setError(null);
