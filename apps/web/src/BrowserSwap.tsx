@@ -272,8 +272,10 @@ export function BrowserSwap(props: Props) {
       ? (working ?? "Paying hop two.")
       : !balance
         ? "Scanning the chain for the landed note."
-        : spendable === 0n
-          ? `${inPool} ZEC in the pool. Waiting for a confirmation.`
+        : balance.ironwood_total === 0
+          ? "Nothing has landed yet. Watching the chain."
+          : spendable === 0n
+            ? `${inPool} ZEC in the pool. Waiting for a confirmation.`
           : upgrade?.sending_paused
             ? `Sending pauses around the ${upgrade.name} upgrade at block ${upgrade.height}. It resumes after.`
             : release && release.getTime() > Date.now()
