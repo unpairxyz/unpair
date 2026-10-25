@@ -6,7 +6,7 @@ import { useSchool } from "./useSchool";
 export type HeroStage = "form" | "deposit" | "seen" | "into" | "pool" | "out" | "done";
 
 const NARRATION: Record<HeroStage, [string, string]> = {
-  form: ["Every chain is public. A normal swap draws a line from you to the other side.", "The red fish is you. Watch it during your swap."],
+  form: ["Every chain is public. A normal swap draws a line from you to the other side.", "The red fish is you."],
   deposit: ["Your deposit is public. The red fish waits at the edge of the pool.", "Send the exact amount to start."],
   seen: ["Deposit seen. The red fish gets ready.", "Still easy to spot."],
   into: ["Into the pool. The red fish swims for the school.", "Watch it go in."],
