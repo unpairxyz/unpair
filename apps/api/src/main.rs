@@ -4,8 +4,6 @@ mod oneclick;
 mod routes;
 mod screening;
 mod sign;
-#[cfg(feature = "wallet")]
-mod wallet_worker;
 
 use std::sync::Arc;
 
@@ -38,20 +36,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(pubkey = %signer.public_key_hex(), "quote signing key");
     let oneclick = oneclick::OneClick::new(cfg.oneclick_url.clone(), cfg.oneclick_jwt.clone())?;
 
-    #[cfg(feature = "wallet")]
-    let wallet = match &cfg.wallet {
-        Some(w) => Some(wallet_worker::start(w.clone())?),
-        None => None,
-    };
-
     let state = Arc::new(AppState {
         bind: cfg.bind,
         config: cfg,
         screener,
         signer,
         oneclick,
-        #[cfg(feature = "wallet")]
-        wallet,
         started_at: std::time::Instant::now(),
     });
 

@@ -25,10 +25,6 @@ pub struct Config {
     pub signing_seed: Option<[u8; 32]>,
     pub screening: ScreeningConfig,
     pub geofence: GeofenceConfig,
-    #[cfg_attr(not(feature = "wallet"), allow(dead_code))]
-    pub wallet: Option<WalletConfig>,
-    /// Bearer token for operator endpoints. Required when the wallet is on.
-    pub operator_token: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -54,23 +50,6 @@ pub struct GeofenceConfig {
     pub country_header: String,
     /// Refuse requests with no country header. Default true in production.
     pub require_header: bool,
-}
-
-#[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "wallet"), allow(dead_code))]
-pub struct WalletConfig {
-    pub seed_file: PathBuf,
-    pub db_path: PathBuf,
-    pub lightwalletd: Vec<String>,
-    pub network: WalletNetwork,
-    pub interval: Duration,
-    pub params_dir: Option<PathBuf>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WalletNetwork {
-    Main,
-    Test,
 }
 
 fn var(name: &str) -> Option<String> {
@@ -182,50 +161,6 @@ impl Config {
             require_header: bool_var("UNPAIR_GEOFENCE_REQUIRE_HEADER", false)?,
         };
 
-        let wallet = match var("UNPAIR_WALLET_SEED_FILE") {
-            None => None,
-            Some(seed_file) => Some(WalletConfig {
-                seed_file: PathBuf::from(seed_file),
-                db_path: PathBuf::from(
-                    var("UNPAIR_WALLET_DB").unwrap_or_else(|| "unpair-wallet.sqlite".into()),
-                ),
-                lightwalletd: list("UNPAIR_LIGHTWALLETD", ""),
-                network: match var("UNPAIR_ZCASH_NETWORK")
-                    .unwrap_or_else(|| "main".into())
-                    .as_str()
-                {
-                    "main" => WalletNetwork::Main,
-                    "test" => WalletNetwork::Test,
-                    other => {
-                        return Err(ConfigError::Invalid(
-                            "UNPAIR_ZCASH_NETWORK".into(),
-                            format!("expected main or test, got {other}"),
-                        ))
-                    }
-                },
-                interval: Duration::from_secs(
-                    var("UNPAIR_SHIELD_INTERVAL_SECS")
-                        .unwrap_or_else(|| "120".into())
-                        .parse()
-                        .map_err(|e| {
-                            ConfigError::Invalid(
-                                "UNPAIR_SHIELD_INTERVAL_SECS".into(),
-                                format!("{e}"),
-                            )
-                        })?,
-                ),
-                params_dir: var("UNPAIR_SAPLING_PARAMS_DIR").map(PathBuf::from),
-            }),
-        };
-
-        let operator_token = var("UNPAIR_OPERATOR_TOKEN");
-        if wallet.is_some() && operator_token.as_deref().is_none_or(|t| t.len() < 24) {
-            return Err(ConfigError::Invalid(
-                "UNPAIR_OPERATOR_TOKEN".into(),
-                "required when the wallet is on; at least 24 characters".into(),
-            ));
-        }
-
         Ok(Config {
             bind,
             allowed_origins: list(
@@ -240,8 +175,6 @@ impl Config {
             signing_seed,
             screening,
             geofence,
-            wallet,
-            operator_token,
         })
     }
 }

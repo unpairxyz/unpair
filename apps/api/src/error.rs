@@ -19,16 +19,12 @@ pub enum ApiError {
     BadRequest(String),
     #[error("not allowed: {0}")]
     Forbidden(String),
-    #[error("unauthorized")]
-    Unauthorized,
     #[error("the route is not reachable right now")]
     Upstream(String),
     #[error("screening is not reachable right now")]
     ScreeningUnavailable(String),
     #[error("not found")]
     NotFound,
-    #[error("this feature is off on this server")]
-    FeatureOff,
     #[error("internal error")]
     Internal(String),
 }
@@ -44,13 +40,11 @@ impl IntoResponse for ApiError {
         let (status, code) = match &self {
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             ApiError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
-            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
             ApiError::Upstream(_) => (StatusCode::BAD_GATEWAY, "upstream"),
             ApiError::ScreeningUnavailable(_) => {
                 (StatusCode::SERVICE_UNAVAILABLE, "screening_unavailable")
             }
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not_found"),
-            ApiError::FeatureOff => (StatusCode::NOT_IMPLEMENTED, "feature_off"),
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         };
         match &self {

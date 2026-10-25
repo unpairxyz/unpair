@@ -6570,9 +6570,6 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
- "unpair-zcash",
- "zcash_protocol",
- "zip32",
 ]
 
 [[package]]
