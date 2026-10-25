@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkZcashAddress, describeCheck } from "../src/zcashAddress.js";
+import { checkZcashAddress, describeCheck, describeRefundCheck } from "../src/zcashAddress.js";
 
 describe("checkZcashAddress", () => {
   it("accepts a mainnet t1 address", async () => {
@@ -36,5 +36,18 @@ describe("checkZcashAddress", () => {
     expect((await checkZcashAddress("")).kind).toBe("invalid");
     expect((await checkZcashAddress("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")).kind).toBe("invalid");
     expect((await checkZcashAddress("t1OOOO")).kind).toBe("invalid");
+  });
+
+  it("describes refunds with the payout rule", async () => {
+    const shielded = describeRefundCheck(await checkZcashAddress("u1gsqvqxx6lmmqg05uvx57gjdg5j3a54nxw09z4vq4z0yp7dfdcjrqk5wq64quwzrufmujd5e8xu5jn7cyewjaptxc8lsqwa2lk559u4cd"));
+    expect(shielded.ok).toBe(true);
+    expect(shielded.landing).toBe("shielded");
+    expect(shielded.text).toMatch(/straight into the shielded pool/);
+    const open = describeRefundCheck(await checkZcashAddress("t1dUDJ62ANtmebE8drFg7g2MWYwXHQ6Xu3F"));
+    expect(open.ok).toBe(true);
+    expect(open.landing).toBe("transparent");
+    const bad = describeRefundCheck(await checkZcashAddress("zs1z7rejlpsa98s2rrrfkwmaxu53e4ue0ulcrw0h4x5g8jl04tak0d3mm47vdtahatqrlkngh9sly"));
+    expect(bad.ok).toBe(false);
+    for (const v of [shielded, open, bad]) expect(v.text).not.toContain("\u2014");
   });
 });

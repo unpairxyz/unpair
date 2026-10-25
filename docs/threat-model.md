@@ -59,7 +59,7 @@ Nothing else. No hosted wallet, no own node, no own chain, no token.
 
 - A fresh landing address per swap. Never reused.
 - Payouts go straight into Ironwood when the route can pay a shielded-only address. Transparent payouts are shielded into Ironwood in one step, on your device.
-- Refund addresses are never shielded addresses posted to a public chain.
+- Refund addresses follow the payout rule. A shielded-only unified address is refunded straight into the pool, a transparent address is shielded again on receipt. Like the payout address, a refund address is readable for that one transaction, so it is fresh and used once.
 - Quiet mode rounds the amount and releases after a random delay with a mean of about 3 hours and a cap of 12.
 - Every fee is shown before the trade and capped in code.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
@@ -72,3 +72,15 @@ to Maya, and Maya was exploited and halted from 18 August to 1 October 2026. If
 Maya is added it will be an optional route that you pick, never the default.
 THORChain carries ZEC, transparent only, in a pool a few dozen ZEC deep. Custodial
 swap services are out because they can hold funds.
+
+## A landing wallet we do not hold
+
+The page lists a wallet that Unpair would hold for you, and keeps it off. It
+would receive the payout into a shielded wallet of ours and pay your address
+later, so your address never appears on NEAR or in the bridge output and the
+timing of the two legs comes apart. That is a stronger break of the on-chain
+link than a payout into your own wallet. The price is that you would trust us
+with your funds, our logs and our solvency, and we would be the one party able
+to see both ends. It would also make us a custodian in the eyes of regulators.
+We do not offer it. If that ever changes it will be a choice you make, with
+this trade-off stated on the page, and never the default.

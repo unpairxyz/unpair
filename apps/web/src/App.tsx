@@ -11,6 +11,7 @@ import {
   type RouteId,
   type StatusResponse,
   type TokenInfo,
+  ZEC_DECIMALS,
 } from "@unpair/sdk";
 import {
   ApiClient,
@@ -24,12 +25,13 @@ import {
   STATE_COPY,
   TOR_HINT,
   WAIT_COPY,
-  WALLET_COPY,
+  WALLET_CHOICES,
   chainName,
   checkZcashAddress,
   depositDeadline,
   describeCheck,
   describePlan,
+  describeRefundCheck,
   groupByChain,
   planAmount,
   routeInfo,
@@ -151,12 +153,13 @@ function WalletPicker({ options, onOptions }: { options: Options; onOptions: (o:
   return (
     <fieldset className="choices">
       <legend>Where the ZEC lands</legend>
-      {(["own", "unpair_app"] as WalletChoice[]).map((w) => (
-        <label key={w} className="choice">
-          <input type="radio" name="wallet" value={w} checked={options.wallet === w} onChange={() => onOptions({ ...options, wallet: w })} />
+      {WALLET_CHOICES.map((w) => (
+        <label key={w.id} className={`choice${w.available ? "" : " off"}`}>
+          <input type="radio" name="wallet" value={w.id} checked={options.wallet === w.id} disabled={!w.available} onChange={() => onOptions({ ...options, wallet: w.id })} />
           <span>
-            <strong>{WALLET_COPY[w].title}</strong>
-            <small>{WALLET_COPY[w].text}</small>
+            <strong>{w.title}</strong>{" "}
+            <em>{w.custody === "you" ? "you hold the key" : "Unpair holds the key"}</em>
+            <small>{w.text}{w.available ? "" : ` ${w.note}`}</small>
           </span>
         </label>
       ))}
@@ -418,7 +421,8 @@ function SendOut({ tokens, options, onOptions }: FlowProps) {
   const planError = planned && "error" in planned ? planned.error : null;
   const plan = planned && !("error" in planned) ? planned : null;
   const feePreview = token && zec ? client.previewFee(zec, token, "EXACT_INPUT") : null;
-  const refundOk = refundCheck ? describeCheck(refundCheck).ok : false;
+  const refundVerdict = refundCheck ? describeRefundCheck(refundCheck) : null;
+  const refundOk = refundVerdict?.ok ?? false;
   const canQuote = Boolean(token && zec && plan && !planError && refundOk && destination.trim() !== "" && !busy);
 
   async function getQuote() {
@@ -441,7 +445,7 @@ function SendOut({ tokens, options, onOptions }: FlowProps) {
       };
       const r = await screenAndQuote(request);
       if ("refused" in r) setFormError(r.refused);
-      else setStep({ kind: "quoted", quote: r.quote, token, verified: r.verified });
+      else setStep({ kind: "quoted", quote: r.quote, token, verified: r.verified, ...(refundVerdict?.landing ? { landing: refundVerdict.landing } : {}) });
     } catch (e) {
       setFormError(describeError(e));
     } finally {
@@ -456,6 +460,7 @@ function SendOut({ tokens, options, onOptions }: FlowProps) {
 
   if (step.kind === "quoted") {
     const q = step.quote.quote;
+    const refundFee = q.refundFee ? ` The route keeps ${formatUnits(BigInt(q.refundFee), ZEC_DECIMALS)} ZEC of a refund.` : "";
     return (
       <QuoteView
         quote={step.quote}
@@ -466,6 +471,7 @@ function SendOut({ tokens, options, onOptions }: FlowProps) {
           ["You receive", `about ${q.amountOutFormatted} ${step.token.symbol} on ${chainName(step.token.blockchain)}, at least ${formatUnits(BigInt(q.minAmountOut), step.token.decimals)}`],
           ["Route", routeInfo(options.route).name],
           ["Time", `about ${Math.max(1, Math.round(q.timeEstimate / 60))} min after your payment confirms`],
+          ["If it fails", `${step.landing === "shielded" ? "Refund straight into your shielded pool." : "Refund to your transparent address, which your wallet shields."}${refundFee}`],
         ]}
         note="On chain this shows one transparent output to the route and the amount. Do not send the same amount you received, and leave time between the two hops."
         acceptLabel="Show the route's address"
@@ -506,10 +512,10 @@ function SendOut({ tokens, options, onOptions }: FlowProps) {
       {plan && !planError && zec && <p className="hint">{describePlan(plan, zec, options.mode)}</p>}
       <label htmlFor="out-dest">Destination address on {chainName(chain)}</label>
       <input id="out-dest" placeholder="Where the asset arrives" value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
-      <label htmlFor="out-refund">Refund address, a fresh transparent address of your Zcash wallet</label>
-      <input id="out-refund" placeholder="t1..." value={refundTo} onChange={(e) => setRefundTo(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
-      {refundCheck && <p className={`hint ${refundOk ? "ok" : "bad"}`}>{describeCheck(refundCheck).text}</p>}
-      {!refundCheck && <p className="hint">If the route fails, the ZEC comes back here and your wallet shields it again.</p>}
+      <label htmlFor="out-refund">Refund address, a fresh address of your Zcash wallet</label>
+      <input id="out-refund" placeholder="u1... or t1..." value={refundTo} onChange={(e) => setRefundTo(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
+      {refundVerdict && <p className={`hint ${refundVerdict.ok ? (refundVerdict.landing === "shielded" ? "ok" : "neutral") : "bad"}`}>{refundVerdict.text}</p>}
+      {!refundVerdict && <p className="hint">If the route fails, the ZEC comes back here. A shielded-only unified address keeps the refund in the pool.</p>}
 
       <RoutePicker options={options} onOptions={onOptions} />
       <AdvancedPanel options={options} onOptions={onOptions} />
