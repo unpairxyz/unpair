@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { Qr } from "./Qr";
 import { Fish, type Face } from "./Sprites";
 
 /** Two-way choice drawn as a manga toggle (Fast/Quiet, My browser/Unpair server). */
@@ -50,11 +51,19 @@ export function PoolDivider({ onFlip }: { onFlip?: () => void }) {
   );
 }
 
-/** Deposit address with the first and last six characters bold and the middle in groups of four. */
-export function Address({ value }: { value: string }) {
-  if (value.length < 16) return <div className="addr"><b>{value}</b></div>;
+/** Deposit address with the first and last six characters bold and the middle in groups of four. With `qr`, a button shows it as a QR code. */
+export function Address({ value, qr = false }: { value: string; qr?: boolean }) {
+  const [show, setShow] = useState(false);
   const mid = value.slice(6, -6).replace(/(.{4})/g, "$1 ");
-  return <div className="addr"><b>{value.slice(0, 6)}</b> {mid}<b>{value.slice(-6)}</b></div>;
+  const text = value.length < 16 ? <div className="addr"><b>{value}</b></div> : <div className="addr"><b>{value.slice(0, 6)}</b> {mid}<b>{value.slice(-6)}</b></div>;
+  if (!qr) return text;
+  return (
+    <>
+      {text}
+      <button type="button" className="mini qrbtn" aria-expanded={show} onClick={() => setShow(!show)}>{show ? "Hide QR" : "Show QR"}</button>
+      {show && <Qr value={value} />}
+    </>
+  );
 }
 
 export const STATUS_PANELS = [
