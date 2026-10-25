@@ -53,7 +53,7 @@ export const ROUTES: readonly RouteInfo[] = [
     trusted: "Maya Protocol while the swap is in flight",
     payout: "shielded",
     available: false,
-    note: "Pays Sapling, a pool about ten times smaller than Ironwood. Was exploited and halted from 18 August to 1 October 2026. Coming as an optional route.",
+    note: "Pays Sapling, a pool about ten times smaller than Ironwood. Was exploited and halted from 18 August to 1 October 2026. Every deposit needs a memo, so it needs a connected wallet. Off on this page.",
   },
   {
     id: "thorchain",
