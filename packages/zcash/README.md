@@ -57,6 +57,38 @@ sentences for the UI.
 `ShieldPolicy` defaults: shield after 1 confirmation, skip amounts under 0.0005 ZEC,
 sync in batches of 1000 blocks. Deployments can tighten these.
 
+## Browser build
+
+The crate also builds for `wasm32-unknown-unknown`, as `packages/zcash-web`,
+which wraps it with `wasm-bindgen` for the web page. In that build:
+
+- gRPC goes over gRPC-web through `lightwalletd::WebConnector`. A browser
+  cannot speak gRPC, so a proxy sits in front of lightwalletd. The proxy sees
+  the page's IP and the block ranges it asks for, never a key or a note.
+- SQLite is compiled to WebAssembly by the vendored rusqlite in
+  `vendor/rusqlite`, and the database lives in memory for the life of the page.
+- Scan batches run on the calling thread. The vendored `zcash_client_backend`
+  in `vendor/zcash_client_backend` carries that one change; upstream hands
+  batches to rayon, which has no worker thread on wasm. Each vendored crate
+  has an `UNPAIR-PATCH.md` that says what changed and how to refresh it.
+- The clock is `Date.now()`, randomness is the Web Crypto API.
+- Sapling is never proved. `prover::NoSapling` stands in for the Sapling
+  prover, so the 50 MB parameters are not needed. Every proposal is checked
+  to spend Ironwood only before it is built.
+- Proving runs on one thread. Expect tens of seconds per transaction.
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+apps/web/scripts/build-wasm.sh
+```
+
+The output goes to `apps/web/public/wasm/`, which the page loads at run time.
+
+The secp256k1 C code needs a clang with a WebAssembly backend. Apple's clang
+has none; use Homebrew's llvm or a wasi-sdk release and point
+`CC_wasm32_unknown_unknown` at it. The script looks in the usual places.
+
 ## Transport
 
 `ClearnetConnector` is for development and leaks the caller's IP to the server.

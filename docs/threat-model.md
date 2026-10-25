@@ -14,6 +14,15 @@ later spends your ZEC has to live somewhere. You choose where, per swap.
   transparent address and your wallet shields it. For a two-hop swap you send
   the second hop from your own wallet with the Send out tab. Unpair holds
   nothing on this path.
+- **This browser.** The page makes a wallet in the tab for one swap, in a
+  worker, from the same Rust code the server runs. Hop one pays a fresh
+  shielded-only address of that wallet. When the note is spendable, after a
+  random wait in quiet mode, the tab quotes hop two and pays it from Ironwood.
+  The key never leaves the tab. The page offers a recovery file before it shows
+  the deposit address, and that file is the only way back in if the tab closes.
+  Unpair holds nothing on this path. The tab reads the chain through a gRPC-web
+  proxy, which sees the tab's IP and the block ranges it asks for, never a key
+  or a note.
 - **Unpair's server.** The server holds a transit key. Hop one pays a fresh
   shielded-only address of that wallet, so the ZEC lands in Ironwood with no
   transparent step. After a release delay the server pays hop two from the pool
@@ -38,6 +47,7 @@ that funds in transit need it.
 | The route operator for a hop (NEAR Intents today) | Sees the sender, the recipient address and the amount of its own leg. Unlinkability against it is its logging policy. | Each operator sees one leg only. Hop one sees a payout into the pool. Hop two sees a source with no history. | Quiet mode uses a different operator for each hop when one is available. |
 | Anyone, for a payout straight into the pool | The route's bridge encrypts the shielded output with an all-zero outgoing key, so the amount and the receiving address of that one payout are readable by anyone. The note is in the pool, but the swap itself is public. | Same for hop one. Hop two spends from the pool, and that spend is unlinkable. | This is why each address is used once, and why the unlinking comes from the later spend, not from the payout. |
 | Unpair, own-wallet path | Nothing that links the two ends. Quotes are requested from your device. The server sees the addresses it screens, one request at a time, and never a deposit and a destination together. | Nothing. | We are the party that would receive a subpoena. On this path there is nothing to hand over. |
+| Unpair, browser path | Nothing that links the two ends. Each hop is quoted from your device like the own-wallet path. | Nothing. | The gRPC-web proxy, Unpair's or a self-hoster's, sees the tab's IP and which blocks it fetched, not what it found in them. Use Tor Browser if that matters. |
 | Unpair, server path | Both ends: the deposit, the receiving address and the timing, for seven days after the swap finishes. | Same, plus the release delay it chose. | This is the price of closing the tab. The server is the one party able to link your swap. |
 | Your network provider | Sees that you reached a route operator or a lightwalletd server. | Same. | The app uses Tor for lightwalletd and broadcast by default. Nym is optional. |
 
