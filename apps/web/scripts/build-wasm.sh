@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
-# Build the browser wallet (packages/zcash-web) into apps/web/src/wasm/.
+# Build the browser wallet (packages/zcash-web) into apps/web/public/wasm/.
+# The page loads it at run time from there, so the web build itself needs no
+# Rust toolchain. Without this build the "This browser" choice says it is off.
 #
 # Needs: the wasm32-unknown-unknown target (rustup target add wasm32-unknown-unknown),
 # wasm-pack, and a clang that can emit WebAssembly for the secp256k1 C code.
@@ -26,5 +28,6 @@ case "$profile" in
   *) echo "usage: $0 [release|dev]" >&2; exit 2 ;;
 esac
 
-wasm-pack build packages/zcash-web --target web --out-dir ../../apps/web/src/wasm --out-name unpair_zcash $flag --no-pack
-echo "built apps/web/src/wasm ($profile)"
+wasm-pack build packages/zcash-web --target web --out-dir ../../apps/web/public/wasm --out-name unpair_zcash $flag --no-pack
+rm -f apps/web/public/wasm/.gitignore apps/web/public/wasm/package.json
+echo "built apps/web/public/wasm ($profile)"
