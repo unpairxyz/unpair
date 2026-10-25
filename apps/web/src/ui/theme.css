@@ -37,12 +37,22 @@ body{margin:0;background:#EDEDED;color:var(--ink);font:16px/1.5 var(--ui);-webki
 .page{max-width:1240px;margin:0 auto;padding:14px;display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
 .p{position:relative;background:#000;padding:var(--b);clip-path:var(--cp,none)}
 .p > .in{position:relative;background:#fff;height:100%;overflow:hidden;clip-path:var(--cp,none)}
-.hero{grid-column:1/8;--cp:polygon(0 0,100% 0,94% 100%,0 100%);min-height:660px}
-.widget{grid-column:8/13}
-@media (max-width:980px){.hero,.widget{grid-column:1/-1}.hero{--cp:polygon(0 0,100% 0,100% 92%,0 100%);min-height:420px}}
+/* the widget is what people came for: 7 columns; the hero takes 5 and follows its height */
+.hero{grid-column:1/6;--cp:polygon(0 0,100% 0,92% 100%,0 100%);min-height:520px}
+.widget{grid-column:6/13}
+.widget .in{max-width:none}
+@media (max-width:980px){
+  .hero,.widget{grid-column:1/-1}
+  /* phones: a short band, so the form starts near the top */
+  .hero{--cp:polygon(0 0,100% 0,100% 88%,0 100%);min-height:0;height:240px}
+  .hero .title h1{font-size:clamp(34px,9vw,56px)}
+  .hero .narr{font-size:12.5px;padding:5px 8px;max-width:60%;left:10px;top:10px}
+  .hero .narr.br{display:none}
+  .hero .focus{display:none}
+}
 .hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 .title{position:absolute;left:0;right:6%;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;padding:24px}
-.title h1{position:relative;margin:0;text-align:center;font:400 clamp(52px,7.4vw,104px)/.9 var(--sfx);letter-spacing:.02em;transform:rotate(-3deg);color:#000;
+.title h1{position:relative;margin:0;text-align:center;font:400 clamp(44px,4.8vw,72px)/.9 var(--sfx);letter-spacing:.02em;transform:rotate(-3deg);color:#000;
   -webkit-text-stroke:2px #000;text-shadow:5px 5px 0 var(--spot),0 0 0 #fff}
 .title h1 span{display:block;background:#fff;padding:2px 14px;margin:4px auto;width:max-content;max-width:100%;border:3px solid #000}
 .narr{position:absolute;left:18px;top:18px;max-width:240px;background:#fff;border:3px solid #000;padding:8px 12px;font:700 15px/1.3 var(--letter);z-index:2}

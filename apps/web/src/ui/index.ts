@@ -7,5 +7,5 @@ export { InfoTiles, QuoteMark } from "./InfoTiles";
 export { TokenButton, TokenIcon, ChainIcon, TokenPicker } from "./Token";
 export { Toggle, Mascot, GoButton, PoolDivider, Address, StatusStrip, STATUS_PANELS, DoneBurst } from "./Swap";
 export { Masthead, Footer, WidgetPanel, Dialog } from "./Page";
-export { checkShape, kindOf, PLACEHOLDER, type AddressKind, type ShapeCheck } from "./address";
+export { kindOf, PLACEHOLDER } from "./address";
 export { sortTokens, searchTokens, formatPrice, isNative, chainLabel } from "./tokens";
