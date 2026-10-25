@@ -40,8 +40,9 @@ that funds in transit need it.
   nothing else. Funds sit with it between deposit and payout. On 1 October 2026 a
   bug drained about $3.8M from a NEAR Intents hot wallet; the funds were returned
   the next day. We hold nothing, so if a route loses funds we cannot make you whole.
-- Our code. We shrink this with reproducible builds, signed releases with published
-  hashes, and quotes you can check against 1Click directly.
+- Our code. We shrink this with signed releases and published hashes, and with
+  quotes you can check against 1Click directly. Reproducible builds are planned;
+  we will claim them only once an independent rebuild matches.
 
 Nothing else. No hosted wallet, no own node, no own chain, no token.
 

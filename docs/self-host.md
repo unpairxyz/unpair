@@ -10,8 +10,9 @@ runs the second hop. It is built on `packages/zcash` and ships as signed release
 with published hashes, so you can check a download against the source. Building
 it yourself from the repo is the same thing without the signature.
 
-Until the app ships, the web page below works with any Zcash wallet that shields
-on receipt, such as Zodl, Zingo or Zkool.
+Until a release ships, run it from source as its README describes, or use the
+web page below with any Zcash wallet that shields on receipt, such as Zodl, Zingo
+or Zkool.
 
 ## 2. The web page
 
