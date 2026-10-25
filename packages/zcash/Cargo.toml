@@ -14,12 +14,11 @@ zcash_keys = { version = "0.17", features = ["orchard", "sapling", "transparent-
 zcash_protocol = "0.11"
 zcash_address = "0.14"
 zip321 = "0.10"
-zcash_proofs = { version = "0.31", default-features = false, features = ["local-prover"] }
 zcash_transparent = "0.11"
 sapling-crypto = { version = "0.9", default-features = false, features = ["circuit"] }
 jubjub = "0.11"
 bls12_381 = "0.9"
-orchard = "0.16"
+orchard = { version = "0.16", default-features = false, features = ["circuit", "std", "zeroize"] }
 zip32 = "0.3"
 tonic = { version = "0.14", default-features = false, features = ["codegen"] }
 prost = "0.14"
@@ -35,12 +34,14 @@ hex = "0.4"
 async-trait = "0.1"
 http = "1"
 
-# Native: TLS gRPC transport, parameter download, multicore proving.
+# Native: TLS gRPC transport, Sapling parameters on disk, multicore proving.
+# The browser build has no Sapling prover (see src/prover.rs).
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 zcash_client_backend = { version = "0.25", features = ["lightwalletd-tonic-tls-webpki-roots", "lightwalletd-tonic-transport"] }
 zcash_client_sqlite = { version = "0.23", features = ["multicore"] }
 zcash_primitives = { version = "0.31", features = ["multicore"] }
-zcash_proofs = { version = "0.31", features = ["download-params", "multicore"] }
+zcash_proofs = { version = "0.31", default-features = false, features = ["local-prover", "download-params", "multicore"] }
+orchard = { version = "0.16", features = ["multicore"] }
 tonic = { version = "0.14", features = ["transport", "tls-ring", "tls-webpki-roots"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 

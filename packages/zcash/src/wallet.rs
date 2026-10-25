@@ -32,6 +32,7 @@ use zcash_client_sqlite::{AccountUuid, WalletDb};
 use zcash_keys::keys::ReceiverRequirement::{Omit, Require};
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey, UnifiedSpendingKey};
 use zcash_primitives::transaction::TxId;
+#[cfg(not(target_family = "wasm"))]
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::{BlockHeight, Network};
 use zcash_protocol::value::Zatoshis;
