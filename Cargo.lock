@@ -9910,8 +9910,6 @@ dependencies = [
 [[package]]
 name = "zcash_client_backend"
 version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27228f279facfd6b9dd015cea88538020c30f87c8a4aa59e8ed85808d81febb5"
 dependencies = [
  "arti-client",
  "async-trait",
