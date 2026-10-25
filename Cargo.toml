@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["packages/zcash", "packages/zcash-web", "apps/api", "apps/desktop/src-tauri"]
-exclude = ["vendor/rusqlite"]
+exclude = ["vendor/rusqlite", "vendor/zcash_client_backend"]
 
 [workspace.package]
 edition = "2021"
@@ -14,5 +14,8 @@ codegen-units = 1
 
 # rusqlite 0.40 builds for the browser; librustzcash still asks for 0.37.
 # See vendor/rusqlite/UNPAIR-PATCH.md.
+# zcash_client_backend runs scan batches inline on wasm, where rayon has no
+# worker thread. See vendor/zcash_client_backend/UNPAIR-PATCH.md.
 [patch.crates-io]
 rusqlite = { path = "vendor/rusqlite" }
+zcash_client_backend = { path = "vendor/zcash_client_backend" }
