@@ -110,6 +110,17 @@ pub struct Payout {
     pub fee: Zatoshis,
 }
 
+/// Build the Ironwood proving key and keep it in the process-wide cache that
+/// the transaction builder uses. The first call takes seconds of CPU; later
+/// calls return at once. Returns how long the call took.
+pub fn warm_proving_key() -> std::time::Duration {
+    let start = std::time::Instant::now();
+    let _ = zcash_primitives::transaction::builder::cached_orchard_proving_key(
+        orchard::circuit::OrchardCircuitVersion::PostNu6_3,
+    );
+    start.elapsed()
+}
+
 pub struct ShieldWallet {
     network: Network,
     db: Db,

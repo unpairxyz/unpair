@@ -25,7 +25,7 @@ import {
   type Mode,
 } from "@unpair/client";
 import { loadConfig } from "./config";
-import { errorText, wallet, type Landing, type Payout, type WalletReport, type WalletStatus } from "./bridge";
+import { errorText, wallet, type Landing, type Payout, type UpgradeInfo, type WalletReport, type WalletStatus } from "./bridge";
 
 const config = loadConfig();
 const client = new OneClickClient({
@@ -431,7 +431,9 @@ function SendOutView({ status }: { status: WalletStatus }) {
     }
   }
   const feePreview = token && zec ? client.previewFee(zec, token, "EXACT_INPUT") : null;
-  const canQuote = Boolean(token && zec && send && !amountError && destination.trim() !== "" && status.running && !busy);
+  const paused = report?.upgrade?.sending_paused ?? false;
+  const proving = report?.proving.ready ?? false;
+  const canQuote = Boolean(token && zec && send && !amountError && destination.trim() !== "" && status.running && proving && !paused && !busy);
 
   async function getQuote() {
     if (!token || !zec || !send) return;
@@ -580,10 +582,22 @@ function SendOutView({ status }: { status: WalletStatus }) {
       <input id="out-dest" placeholder="Where the asset arrives" value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
       <p className="hint">A refund, if the route fails, comes back to a fresh address of this wallet and is shielded again.</p>
       {feePreview && <p className="hint">{feePreview.text}</p>}
+      {report && !proving && <p className="hint warn">Preparing the prover on this device. Sending opens in a few seconds.</p>}
+      {report?.upgrade && <UpgradeLine u={report.upgrade} />}
       {formError && <p className="hint bad">{formError}</p>}
       <button type="button" className="primary" disabled={!canQuote} onClick={getQuote}>{busy ? "Getting quote" : "Get quote"}</button>
     </section>
   );
+}
+
+function UpgradeLine({ u }: { u: UpgradeInfo }) {
+  const when = new Date(u.eta_unix * 1000);
+  const date = when.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+  if (u.sending_paused) {
+    return <p className="hint warn">The {u.name} network upgrade activates at block {u.height}, in about {Math.max(1, Math.round((u.blocks_left * 75) / 60))} minutes. Sending out is paused until it is live.</p>;
+  }
+  if (u.blocks_left * 75 > 7 * 24 * 3600) return null;
+  return <p className="hint">The {u.name} network upgrade activates around {date}. Sending out pauses for about 50 minutes before it.</p>;
 }
 
 function describeOneClickError(e: OneClickError): string {
@@ -760,6 +774,14 @@ function WalletView({ status, onStatus }: { status: WalletStatus; onStatus: (s: 
             <>
               <dt>Waiting to shield</dt>
               <dd>{formatUnits(BigInt(report.balance.unshielded), 8)} ZEC</dd>
+            </>
+          )}
+          <dt>Prover</dt>
+          <dd>{report ? (report.proving.ready ? `ready${report.proving.build_secs !== null ? `, built in ${report.proving.build_secs.toFixed(1)} s` : ""}` : "preparing") : "unknown"}</dd>
+          {report?.upgrade && (
+            <>
+              <dt>Next upgrade</dt>
+              <dd>{report.upgrade.name} at block {report.upgrade.height}, around {new Date(report.upgrade.eta_unix * 1000).toLocaleString(undefined, { month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}</dd>
             </>
           )}
           <dt>Landings</dt>

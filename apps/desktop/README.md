@@ -15,6 +15,10 @@ What it does:
   goes back to Ironwood, and the app refuses to build in the last 40 blocks before
   a network upgrade.
 - Restores from a phrase, with an optional birthday height to bound the rescan.
+- Builds the Ironwood proving key once at start on a blocking thread, about 2
+  seconds in a release build, and shows the next network upgrade with a live
+  estimate from the synced height. Sending out pauses for 40 blocks before an
+  upgrade.
 
 Still to come: the quiet mode scheduler that rounds and times hop two for you,
 Tor on by default with a

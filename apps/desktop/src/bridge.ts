@@ -31,11 +31,26 @@ export interface Payout {
   fee: number;
 }
 
+export interface ProvingInfo {
+  ready: boolean;
+  build_secs: number | null;
+}
+
+export interface UpgradeInfo {
+  name: string;
+  height: number;
+  blocks_left: number;
+  eta_unix: number;
+  sending_paused: boolean;
+}
+
 export interface WalletReport {
   landings: string[];
   shield_txids: string[];
   payout_txids: string[];
   balance: BalanceInfo;
+  proving: ProvingInfo;
+  upgrade: UpgradeInfo | null;
   synced_height: number | null;
   last_error: string | null;
   cycles: number;

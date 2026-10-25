@@ -11,7 +11,8 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 use unpair_zcash::keys::{encode_transparent, Seed};
 use unpair_zcash::lightwalletd::{default_endpoints, Connector, Pool};
-use unpair_zcash::wallet::{Balance, ShieldPolicy, ShieldWallet};
+use unpair_zcash::send::upgrade_notice;
+use unpair_zcash::wallet::{warm_proving_key, Balance, ShieldPolicy, ShieldWallet};
 use unpair_zcash::Zatoshis;
 use zcash_protocol::consensus::{BlockHeight, Network};
 
@@ -41,6 +42,21 @@ impl From<Balance> for BalanceInfo {
     }
 }
 
+#[derive(Clone, Serialize, Default)]
+pub struct ProvingInfo {
+    pub ready: bool,
+    pub build_secs: Option<f64>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct UpgradeInfo {
+    pub name: &'static str,
+    pub height: u32,
+    pub blocks_left: u32,
+    pub eta_unix: u64,
+    pub sending_paused: bool,
+}
+
 #[derive(Clone, Serialize)]
 pub struct PayoutInfo {
     pub txid: String,
@@ -56,6 +72,8 @@ pub struct Report {
     /// Hop-two payouts broadcast since the app started.
     pub payout_txids: Vec<String>,
     pub balance: BalanceInfo,
+    pub proving: ProvingInfo,
+    pub upgrade: Option<UpgradeInfo>,
     pub synced_height: Option<u32>,
     pub last_error: Option<String>,
     pub cycles: u64,
@@ -209,10 +227,25 @@ async fn run<C: Connector>(
     let net = wallet.network();
     let mut slot = Some(wallet);
     let mut report = Report::default();
+    // Build the Ironwood proving key once, off this runtime, so the first send
+    // does not pay for it. About two seconds in a release build.
+    let mut warm = Some(tokio::task::spawn_blocking(warm_proving_key));
     let mut txids: BTreeSet<String> = BTreeSet::new();
     let mut payouts: BTreeSet<String> = BTreeSet::new();
     let mut next_cycle = tokio::time::Instant::now();
     loop {
+        if let Some(h) = warm.as_mut() {
+            if h.is_finished() {
+                let took = warm.take().expect("checked").await.ok();
+                report.proving = ProvingInfo {
+                    ready: took.is_some(),
+                    build_secs: took.map(|d| d.as_secs_f64()),
+                };
+                if let Some(d) = took {
+                    tracing::info!(secs = d.as_secs_f64(), "proving key ready");
+                }
+            }
+        }
         let mut sync_requests: Vec<oneshot::Sender<Report>> = Vec::new();
         let mut pay_requests: Vec<PayRequest> = Vec::new();
         while let Ok(cmd) = rx.try_recv() {
@@ -284,6 +317,19 @@ fn fill(
         if let Ok(b) = wallet.balance() {
             report.balance = b.into();
         }
+        report.upgrade = report.synced_height.and_then(|h| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            upgrade_notice(&net, BlockHeight::from(h), now).map(|u| UpgradeInfo {
+                name: u.name,
+                height: u.height,
+                blocks_left: u.blocks_left,
+                eta_unix: u.eta_unix,
+                sending_paused: u.sending_paused,
+            })
+        });
     }
     report.shield_txids = txids.iter().cloned().collect();
     report.payout_txids = payouts.iter().cloned().collect();
