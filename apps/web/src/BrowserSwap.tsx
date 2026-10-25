@@ -87,9 +87,11 @@ export function BrowserSwap(props: Props) {
     if (phase === "deposit" && state1 === "routing") onStage("into");
   }, [phase, state1, onStage]);
 
-  // In the pool: scan until the note is spendable, then wait or send.
+  // In the pool: scan until the note is spendable, then wait or send. The
+  // scan also runs while the deposit is awaited, so ZEC paid straight to the
+  // tab's address is noticed even if hop one was never used.
   useEffect(() => {
-    if (phase !== "pool") return;
+    if (phase !== "pool" && phase !== "deposit") return;
     let alive = true;
     let timer: number | null = null;
     const tick = async () => {
@@ -112,6 +114,10 @@ export function BrowserSwap(props: Props) {
       if (timer) window.clearTimeout(timer);
     };
   }, [phase, wallet]);
+
+  useEffect(() => {
+    if (phase === "deposit" && balance && balance.ironwood_total > 0) setPhase("pool");
+  }, [phase, balance]);
 
   const spendable = BigInt(balance?.ironwood_spendable ?? 0);
   const canSend = spendable > HOP2_FEE_RESERVE_ZAT && !(upgrade?.sending_paused ?? false);
@@ -284,7 +290,8 @@ export function BrowserSwap(props: Props) {
         <div className="wtitle"><b>IN PROGRESS</b><span className="code">{shortCode(seed)}</span></div>
         <StatusStrip current={state1 === "waiting_for_deposit" ? 0 : 1} texts={{ 0: "Watching the deposit address.", 1: "The route swaps it into ZEC and pays this tab's shielded address.", 2: "Lands in the pool. The tab's wallet picks it up.", 3: "The tab pays hop two to your address." }} />
         {pollError1 && <p className="err-line">Status check failed, retrying: {pollError1}</p>}
-        <p className="fine">Keep this page open until the swap completes.</p>
+        <p className="fine">Keep this page open until the swap completes. ZEC sent straight to the tab's address is picked up here too.</p>
+        <GoButton ghost onClick={() => setPhase("pool")}>I PAID THE TAB'S ADDRESS INSTEAD</GoButton>
       </div>
     );
   }
