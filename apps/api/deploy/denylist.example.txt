@@ -1,0 +1,3 @@
+# One address per line. Case does not matter. Text after # is ignored.
+# Fill from your screening provider's export or the public sanctions lists.
+0x0000000000000000000000000000000000000000  # example entry, remove
