@@ -67,6 +67,10 @@ which wraps it with `wasm-bindgen` for the web page. In that build:
   the page's IP and the block ranges it asks for, never a key or a note.
 - SQLite is compiled to WebAssembly by the vendored rusqlite in
   `vendor/rusqlite`, and the database lives in memory for the life of the page.
+- Scan batches run on the calling thread. The vendored `zcash_client_backend`
+  in `vendor/zcash_client_backend` carries that one change; upstream hands
+  batches to rayon, which has no worker thread on wasm. Each vendored crate
+  has an `UNPAIR-PATCH.md` that says what changed and how to refresh it.
 - The clock is `Date.now()`, randomness is the Web Crypto API.
 - Sapling is never proved. `prover::NoSapling` stands in for the Sapling
   prover, so the 50 MB parameters are not needed. Every proposal is checked
