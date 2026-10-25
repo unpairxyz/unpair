@@ -2,7 +2,7 @@
 //!
 //! UNPAIR_PHRASE="word word ..." cargo run -p unpair-zcash --example landing -- 3
 
-use unpair_zcash::keys::{landing_at, spending_key, Seed};
+use unpair_zcash::keys::{landing_at, orchard_only_at, spending_key, Seed};
 use unpair_zcash::Network;
 use zip32::DiversifierIndex;
 
@@ -21,6 +21,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("index {:?}", l.index);
         println!("  landing   {}", l.transparent_string(&network));
         println!("  unified   {}", l.unified_string(&network));
+        let (orchard_only, _) = orchard_only_at(&ufvk, l.index)?;
+        println!("  shielded  {}", orchard_only.encode(&network));
         j = l.index;
         j.increment().map_err(|_| "diversifier space exhausted")?;
     }

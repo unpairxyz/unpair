@@ -13,7 +13,7 @@ export type WalletChoice = "own" | "unpair_app";
 export const WALLET_COPY: Record<WalletChoice, { title: string; text: string }> = {
   own: {
     title: "My own Zcash wallet",
-    text: "Paste a fresh transparent address from a wallet that shields on receipt, such as Zodl, Zingo or Zkool. Your wallet moves the ZEC into the shielded pool.",
+    text: "Paste a fresh address from Zodl, Zingo, Zkool or any Zcash wallet. A shielded-only unified address is paid straight into the pool. A transparent address is shielded by your wallet on receipt.",
   },
   unpair_app: {
     title: "The Unpair app",
@@ -45,7 +45,7 @@ export const ROUTES: readonly RouteInfo[] = [
     trusted: "NEAR Intents while the swap is in flight",
     payout: "transparent",
     available: true,
-    note: "Pays a transparent Zcash address. Your wallet shields it on receipt.",
+    note: "Pays a shielded-only unified address straight into Ironwood, or a transparent address that your wallet shields.",
   },
   {
     id: "maya",
@@ -53,7 +53,7 @@ export const ROUTES: readonly RouteInfo[] = [
     trusted: "Maya Protocol while the swap is in flight",
     payout: "shielded",
     available: false,
-    note: "Can pay a shielded address directly, with no transparent step. Off until its state after the August 2026 exploit is checked.",
+    note: "Pays Sapling, a pool about ten times smaller than Ironwood. Was exploited and halted from 18 August to 1 October 2026. Coming as an optional route.",
   },
   {
     id: "thorchain",
@@ -61,7 +61,7 @@ export const ROUTES: readonly RouteInfo[] = [
     trusted: "THORChain while the swap is in flight",
     payout: "transparent",
     available: false,
-    note: "Does not carry ZEC, so it cannot do the Zcash leg.",
+    note: "Its ZEC pool is a few dozen ZEC deep and pays transparent only. Off until it is deep enough.",
   },
 ];
 

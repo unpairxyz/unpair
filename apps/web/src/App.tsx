@@ -37,6 +37,7 @@ import {
   verifySignedQuote,
   type AddressCheck,
   type AdvancedOptions,
+  type Landing,
   type Mode,
   type WalletChoice,
 } from "@unpair/client";
@@ -65,8 +66,8 @@ interface Options {
 
 type Step =
   | { kind: "form" }
-  | { kind: "quoted"; quote: QuoteResponse; token: TokenInfo; verified: boolean | null }
-  | { kind: "tracking"; quote: QuoteResponse; token: TokenInfo };
+  | { kind: "quoted"; quote: QuoteResponse; token: TokenInfo; verified: boolean | null; landing?: Landing }
+  | { kind: "tracking"; quote: QuoteResponse; token: TokenInfo; landing?: Landing };
 
 export function App() {
   const [direction, setDirection] = useState<Direction>("in");
@@ -261,7 +262,9 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
   const planError = planned && "error" in planned ? planned.error : null;
   const plan = planned && !("error" in planned) ? planned : null;
   const feePreview = token && zec ? client.previewFee(token, zec, "EXACT_INPUT") : null;
-  const destOk = destCheck ? describeCheck(destCheck).ok : false;
+  const destVerdict = destCheck ? describeCheck(destCheck) : null;
+  const destOk = destVerdict?.ok ?? false;
+  const landing = destVerdict?.landing;
   const ownWallet = options.wallet === "own";
   const canQuote = Boolean(token && zec && plan && !planError && ownWallet && destOk && refundTo.trim() !== "" && !busy);
 
@@ -285,7 +288,7 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
       };
       const r = await screenAndQuote(request);
       if ("refused" in r) setFormError(r.refused);
-      else setStep({ kind: "quoted", quote: r.quote, token, verified: r.verified });
+      else setStep({ kind: "quoted", quote: r.quote, token, verified: r.verified, ...(landing ? { landing } : {}) });
     } catch (e) {
       setFormError(describeError(e));
     } finally {
@@ -307,16 +310,17 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
         rows={[
           ["You send", `${q.amountInFormatted} ${step.token.symbol} on ${chainName(step.token.blockchain)}`],
           ["You receive", `about ${q.amountOutFormatted} ZEC, at least ${formatUnits(BigInt(q.minAmountOut), 8)} ZEC`],
+          ["Lands", step.landing === "shielded" ? "straight in the shielded pool" : "at your transparent address, then your wallet shields it"],
           ["Route", routeInfo(options.route).name],
           ["Time", `about ${Math.max(1, Math.round(q.timeEstimate / 60))} min${options.mode === "quiet" ? ", then your wait before the second hop" : ""}`],
         ]}
         onBack={reset}
-        onAccept={() => setStep({ kind: "tracking", quote: step.quote, token: step.token })}
+        onAccept={() => setStep({ kind: "tracking", quote: step.quote, token: step.token, ...(step.landing ? { landing: step.landing } : {}) })}
       />
     );
   }
   if (step.kind === "tracking") {
-    return <TrackingView quote={step.quote} token={step.token} direction="in" options={options} onDone={reset} />;
+    return <TrackingView quote={step.quote} token={step.token} direction="in" options={options} landing={step.landing ?? "transparent"} onDone={reset} />;
   }
 
   return (
@@ -355,9 +359,9 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
       {ownWallet ? (
         <>
           <label htmlFor="dest">Your Zcash address</label>
-          <input id="dest" placeholder="t1..." value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
-          {destCheck && <p className={`hint ${destOk ? "ok" : "bad"}`}>{describeCheck(destCheck).text}</p>}
-          {!destCheck && <p className="hint">A fresh transparent address, used once. Your wallet shields it on receipt.</p>}
+          <input id="dest" placeholder="u1... or t1..." value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
+          {destVerdict && <p className={`hint ${destOk ? (landing === "shielded" ? "ok" : "") : "bad"}`}>{destVerdict.text}</p>}
+          {!destCheck && <p className="hint">Best: a fresh shielded-only unified address, paid straight into the pool. Also fine: a fresh transparent address that your wallet shields. Use each address once.</p>}
         </>
       ) : (
         <p className="hint warn">Open the Unpair app and use its Swap in tab. It makes the landing address and shields it for you. <a href="https://github.com/unpairxyz/unpair/tree/main/apps/desktop" rel="noreferrer">Get the app</a>.</p>
@@ -471,7 +475,7 @@ function SendOut({ tokens, options, onOptions }: FlowProps) {
     );
   }
   if (step.kind === "tracking") {
-    return <TrackingView quote={step.quote} token={step.token} direction="out" options={options} onDone={reset} />;
+    return <TrackingView quote={step.quote} token={step.token} direction="out" options={options} landing="transparent" onDone={reset} />;
   }
 
   return (
@@ -578,7 +582,7 @@ function DlRow({ k, v }: { k: string; v: string }) {
   );
 }
 
-function TrackingView({ quote, token, direction, options, onDone }: { quote: QuoteResponse; token: TokenInfo; direction: Direction; options: Options; onDone: () => void }) {
+function TrackingView({ quote, token, direction, options, landing, onDone }: { quote: QuoteResponse; token: TokenInfo; direction: Direction; options: Options; landing: Landing; onDone: () => void }) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -621,7 +625,8 @@ function TrackingView({ quote, token, direction, options, onDone }: { quote: Quo
     }
   }
 
-  const copy_ = (direction === "out" ? SEND_OUT_COPY[state] : undefined) ?? STATE_COPY[state];
+  const base = (direction === "out" ? SEND_OUT_COPY[state] : undefined) ?? STATE_COPY[state];
+  const copy_ = state === "landed" && direction === "in" && landing === "shielded" ? { label: "Shielded", text: "ZEC arrived in the shielded pool at your address. Nothing more to do on the Zcash side." } : base;
   const sendUnit = direction === "out" ? "ZEC from your shielded wallet" : `${token.symbol} on ${chainName(token.blockchain)}`;
   return (
     <section className="card">

@@ -11,13 +11,26 @@ describe("checkZcashAddress", () => {
     const c = await checkZcashAddress("t1dUDJ62ANtmebE8drFg7g2MWYwXHQ6Xu3G");
     expect(c.kind).toBe("invalid");
   });
-  it("recognises unified and sapling addresses and refuses them", async () => {
+  it("accepts a unified address with a transparent receiver as a transparent landing", async () => {
     const u = await checkZcashAddress("u16sw4v6wy7f4jzdny55yzl020tp3yqg3c85dc6n7mmq0urfm6adqg79hxmyk85ufn4lun4pfh5q48cc3kvxhxm3w978eqqecdd260gkzjrkun6z7m9mcrt2zszaj0mvk6ufux2zteqwh57cq906hz3rkg63duaeqsvjelv9h5srct0zq8rvlv23wz5hed7zuatqd7p6p4ztugc4t4w2g");
     expect(u.kind).toBe("unified");
-    expect(describeCheck(u).ok).toBe(false);
-    expect(describeCheck(u).text).toContain("transparent");
+    const v = describeCheck(u);
+    expect(v.ok).toBe(true);
+    expect(v.landing).toBe("transparent");
+  });
+  it("accepts an Orchard-only unified address as a shielded landing", async () => {
+    const u = await checkZcashAddress("u1gsqvqxx6lmmqg05uvx57gjdg5j3a54nxw09z4vq4z0yp7dfdcjrqk5wq64quwzrufmujd5e8xu5jn7cyewjaptxc8lsqwa2lk559u4cd");
+    const v = describeCheck(u);
+    expect(v.ok).toBe(true);
+    expect(v.landing).toBe("shielded");
+    expect(v.text).toContain("fresh address");
+  });
+  it("refuses sapling and broken unified addresses", async () => {
     const z = await checkZcashAddress("zs1abc");
     expect(z.kind).toBe("sapling");
+    expect(describeCheck(z).ok).toBe(false);
+    const bad = await checkZcashAddress("u1gsqvqxx6lmmqg05uvx57gjdg5j3a54nxw09z4vq4z0yp7dfdcjrqk5wq64quwzrufmujd5e8xu5jn7cyewjaptxc8lsqwa2lk559u4cx");
+    expect(bad.kind).toBe("invalid");
   });
   it("rejects garbage and empty input", async () => {
     expect((await checkZcashAddress("")).kind).toBe("invalid");

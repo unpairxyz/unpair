@@ -1,16 +1,18 @@
 /**
- * Zcash address checks for the destination field.
+ * Zcash address checks for the destination and refund fields.
  *
- * 1Click pays transparent addresses only, so the destination must be a
- * t-address. A unified address is recognised and refused with a reason, so
- * the user knows to paste the transparent one from the same wallet.
+ * 1Click pays a transparent address, or an Orchard-only unified address
+ * straight into Ironwood. A unified address that also carries a transparent
+ * receiver is probably paid to that receiver. Sapling-only is not paid. The
+ * verdict says where the ZEC will land so the user can choose.
  */
+import { decodeUnified, type Receivers } from "./unified.js";
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export type AddressCheck =
   | { kind: "transparent"; network: "mainnet" | "testnet"; p2sh: boolean }
-  | { kind: "unified"; network: "mainnet" | "testnet" }
+  | { kind: "unified"; network: "mainnet" | "testnet"; receivers: Receivers }
   | { kind: "sapling"; network: "mainnet" | "testnet" }
   | { kind: "invalid"; reason: string };
 
@@ -45,8 +47,11 @@ export async function checkZcashAddress(input: string): Promise<AddressCheck> {
   const s = input.trim();
   if (s === "") return { kind: "invalid", reason: "Paste a Zcash address." };
   const lower = s.toLowerCase();
-  if (lower.startsWith("u1")) return { kind: "unified", network: "mainnet" };
-  if (lower.startsWith("utest1")) return { kind: "unified", network: "testnet" };
+  if (lower.startsWith("u1") || lower.startsWith("utest1")) {
+    const u = decodeUnified(s);
+    if (!u) return { kind: "invalid", reason: "This unified address does not decode. Check for typos." };
+    return { kind: "unified", network: u.network, receivers: u.receivers };
+  }
   if (lower.startsWith("zs1")) return { kind: "sapling", network: "mainnet" };
   if (lower.startsWith("ztestsapling1")) return { kind: "sapling", network: "testnet" };
   if (!/^t[13m]/.test(s) || s.length < 34 || s.length > 36) {
@@ -75,20 +80,44 @@ export async function checkZcashAddress(input: string): Promise<AddressCheck> {
   }
 }
 
-/** Plain words for the destination field. */
-export function describeCheck(c: AddressCheck): { ok: boolean; text: string } {
+export type Landing = "shielded" | "transparent";
+
+export interface Verdict {
+  ok: boolean;
+  text: string;
+  /** Where the ZEC lands when ok. */
+  landing?: Landing;
+}
+
+/** Plain words for the address field, for the 1Click route. */
+export function describeCheck(c: AddressCheck): Verdict {
   switch (c.kind) {
     case "transparent":
       return c.network === "mainnet"
-        ? { ok: true, text: "Transparent Zcash address. Your wallet shields what lands here." }
+        ? { ok: true, landing: "transparent", text: "Transparent Zcash address. Your wallet shields what lands here." }
         : { ok: false, text: "This is a testnet address. Unpair routes on mainnet." };
-    case "unified":
-      return {
-        ok: false,
-        text: "This is a unified address. The route pays transparent addresses only. Paste the transparent address from the same wallet; the wallet shields it.",
-      };
+    case "unified": {
+      if (c.network !== "mainnet") return { ok: false, text: "This is a testnet address. Unpair routes on mainnet." };
+      const r = c.receivers;
+      if (r.unknown.length > 0) return { ok: false, text: "This unified address uses a newer format than this page understands. Paste a transparent address from the same wallet." };
+      if (r.p2pkh || r.p2sh) {
+        return {
+          ok: true,
+          landing: "transparent",
+          text: "This unified address has a transparent receiver, so the route pays that one and your wallet shields it. For a payout straight into the shielded pool, paste a shielded-only address from the same wallet if it offers one.",
+        };
+      }
+      if (r.orchard) {
+        return {
+          ok: true,
+          landing: "shielded",
+          text: "Shielded-only address. The route pays straight into the shielded pool, with no transparent step. The amount and this address are readable on chain for this one payout, so use a fresh address.",
+        };
+      }
+      return { ok: false, text: "This unified address has only a Sapling receiver, which the route cannot pay. Paste a transparent or Orchard address from the same wallet." };
+    }
     case "sapling":
-      return { ok: false, text: "This is a Sapling address. Paste the transparent address from the same wallet." };
+      return { ok: false, text: "This is a Sapling address, which the route cannot pay. Paste a transparent or unified address from the same wallet." };
     case "invalid":
       return { ok: false, text: c.reason };
   }
