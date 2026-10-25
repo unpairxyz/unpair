@@ -23,8 +23,8 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
               <g transform="translate(4 4)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="64" height="40" /><use href="#eyeHappy" width="64" height="40" /></g>
               <g transform="translate(78 8) rotate(20)"><circle cx="9" cy="9" r="8" fill="#fff" stroke="#000" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="#000" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="#000" strokeWidth="3" strokeLinecap="round" /></g>
             </svg>
-            <b className="ht">MY BROWSER</b>
-            <p>You hold the key. Keep the tab open, or save the recovery file.</p>
+            <b className="ht">MY WALLET</b>
+            <p>The ZEC lands in your own Zcash wallet. We never hold it. Soon: a wallet in this page.</p>
           </div>
           <div className="half tone">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
