@@ -1,0 +1,23 @@
+# Caddy in front of unpair-api. TLS is automatic.
+#
+# The API reads the visitor's country from the header named in
+# UNPAIR_COUNTRY_HEADER (cf-ipcountry by default). Only a trusted edge may
+# set it. With Cloudflare proxying this host, allow port 443 from Cloudflare's
+# address ranges only, so nobody can reach Caddy directly with a header of
+# their own. Without Cloudflare, Caddy cannot look up a country on its own,
+# and the line below strips the header so the API refuses when
+# UNPAIR_GEOFENCE_REQUIRE_HEADER=true, or serves everyone when false.
+
+api.example.org {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	reverse_proxy 127.0.0.1:8787 {
+		# Remove this line when Cloudflare is the only way in and sets it.
+		header_up -cf-ipcountry
+	}
+}
