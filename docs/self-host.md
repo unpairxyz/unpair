@@ -74,6 +74,19 @@ later. That makes you a custodian between the hops. Before turning it on:
   EU rule that bars crypto-asset service providers from privacy-coin accounts
   from 10 July 2027, before the URL is public.
 
+## 4. The gRPC-web proxy, for the in-browser wallet
+
+The "This browser" option runs a Zcash wallet inside the page. Browsers
+cannot speak gRPC, so the page reaches lightwalletd through a gRPC-web proxy.
+Any gRPC-web capable proxy works; Envoy's `grpc_web` filter is the common
+one. `apps/api/deploy/envoy-lwd.yaml` is a working Envoy configuration:
+replace `LWD_HOST` with a lightwalletd you trust and `PAGE_ORIGIN` with the
+page's origin, run it, put TLS in front, and set `VITE_LWD_GRPC_WEB_URL` to
+the proxy's URL when you build the page.
+
+The proxy sees the visitor's IP and the block ranges the wallet asks for. It
+never sees a key or a note. Keep its access log off, or short.
+
 ## Before a public URL
 
 1. Run a small mainnet swap end to end with your own funds. Swap in to a

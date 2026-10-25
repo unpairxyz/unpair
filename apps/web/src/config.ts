@@ -20,6 +20,18 @@ export interface AppConfig {
   apiUrl: string | undefined;
   /** Pinned Ed25519 public key of that API, hex. Quotes that do not verify are refused. */
   apiPubkey: string | undefined;
+  /** gRPC-web proxy in front of lightwalletd. When set, the page can run a Zcash wallet itself. */
+  lwdGrpcWebUrl: string | undefined;
+  /** Which Zcash network that wallet uses. */
+  zcashNetwork: ZcashNetwork;
+}
+
+export type ZcashNetwork = "main" | "test";
+
+function zcashNetwork(): ZcashNetwork {
+  const raw = ((env.VITE_ZCASH_NETWORK as string | undefined)?.trim() || "main").toLowerCase();
+  if (raw === "main" || raw === "test") return raw;
+  throw new Error(`VITE_ZCASH_NETWORK must be main or test, got ${raw}`);
 }
 
 export function loadConfig(): AppConfig {
@@ -31,5 +43,7 @@ export function loadConfig(): AppConfig {
     officialOrigin: (env.VITE_OFFICIAL_ORIGIN as string | undefined)?.trim() || "https://unpair.xyz",
     apiUrl: (env.VITE_API_URL as string | undefined)?.trim() || undefined,
     apiPubkey: (env.VITE_API_PUBKEY as string | undefined)?.trim().toLowerCase() || undefined,
+    lwdGrpcWebUrl: (env.VITE_LWD_GRPC_WEB_URL as string | undefined)?.trim().replace(/\/+$/, "") || undefined,
+    zcashNetwork: zcashNetwork(),
   };
 }

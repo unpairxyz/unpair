@@ -44,6 +44,29 @@ Environment values are public and end up in the bundle:
 | `VITE_OFFICIAL_ORIGIN` | `https://unpair.xyz` | Shown in the notice on other origins. |
 | `VITE_API_URL` | empty | unpair-api base URL. When set, addresses are screened there and quotes come back signed. |
 | `VITE_API_PUBKEY` | empty | The API's Ed25519 public key, hex, from `GET /v1/pubkey`. A quote that does not verify is refused. |
+| `VITE_LWD_GRPC_WEB_URL` | empty | A gRPC-web proxy in front of lightwalletd. When set, the page offers "This browser". |
+| `VITE_ZCASH_NETWORK` | `main` | `main` or `test`. The network the browser wallet uses. |
+
+## The browser wallet
+
+"This browser" runs a Zcash wallet inside the tab for one swap. It is the
+Rust crate in `packages/zcash` compiled to WebAssembly, loaded at run time from
+`public/wasm/`, and driven from a worker so proving does not freeze the page.
+The folder is not committed. Build it before `pnpm build` or `pnpm dev`:
+
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+apps/web/scripts/build-wasm.sh          # release; "dev" for a quick build
+```
+
+The secp256k1 C code needs a clang that can emit WebAssembly. Apple's clang
+cannot; `brew install llvm` or a wasi-sdk release can. Point
+`CC_wasm32_unknown_unknown` at it if the script does not find it. Without the
+build the choice stays visible and says it is off.
+
+The page also needs `VITE_LWD_GRPC_WEB_URL`. See the self-host guide for the
+proxy. The Pages workflow builds the wallet on every deploy.
 
 ## What the page does
 
@@ -69,8 +92,12 @@ page points to it as the other choice.
   you choose. You pay the route's Zcash address from your own wallet.
 - **Fast or quiet.** Quiet rounds the amount and suggests a random wait between
   the hops.
-- **Who holds the coins in between.** Your own wallet, the Unpair app, or
-  Unpair's server. With the server, hop one lands in Unpair's shielded wallet
+- **Who holds the coins in between.** Your own wallet, this browser, or
+  Unpair's server. With this browser, the tab makes a Zcash wallet for the
+  swap, hands the route a fresh shielded address, and pays hop two itself once
+  the note is spendable, after a random wait in quiet mode. The key stays in
+  the tab. A recovery file, offered before the deposit address, reopens the
+  wallet in a new tab and finishes the swap from the pool. With the server, hop one lands in Unpair's shielded wallet
   and the server pays hop two later to the asset and address you chose, so the
   tab can close. The page says next to the choice that the server holds your
   funds between the hops and sees both ends. The choice is only on when the

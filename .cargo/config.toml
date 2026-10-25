@@ -1,0 +1,4 @@
+# Browser build of the Zcash crate. getrandom needs to be told to use the
+# Web Crypto API on wasm32-unknown-unknown.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

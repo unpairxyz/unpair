@@ -1,18 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ZEC_DECIMALS, formatUnits, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import {
-  OneClickClient,
-  OneClickError,
-  ZEC_DECIMALS,
-  clearnetTransport,
-  formatUnits,
-  type QuoteInput,
-  type QuoteResponse,
-  type StatusResponse,
-  type TokenInfo,
-} from "@unpair/sdk";
-import {
-  ApiClient,
-  ApiError,
   HOSTED_COPY,
   SEND_OUT_COPY,
   STATE_COPY,
@@ -32,7 +20,10 @@ import {
   type Mode,
   type SignedQuote,
 } from "@unpair/client";
-import { loadConfig } from "./config";
+import { BrowserSwap } from "./BrowserSwap";
+import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
+import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWallet";
+import type { Landing } from "./wallet/types";
 import {
   Address,
   DoneBurst,
@@ -57,26 +48,9 @@ import {
 } from "./ui";
 import { chainLabel } from "./ui/tokens";
 
-const config = loadConfig();
-const client = new OneClickClient({
-  ...(config.apiKey ? { apiKey: config.apiKey } : {}),
-  fee: config.fee,
-  transport: clearnetTransport(),
-});
-const api = config.apiUrl ? new ApiClient(config.apiUrl) : null;
-if (api && !config.apiPubkey) {
-  console.warn("VITE_API_URL is set without VITE_API_PUBKEY; signed quotes cannot be verified and will be refused.");
-}
-
-/** Who holds the Zcash key between the hops. */
-type Custody = "own" | "server";
+type Custody = "own" | "browser" | "server";
 type View = "in" | "out";
 type HostedAvailability = { known: false } | { known: true; info: HostedInfo | null };
-
-const SLIPPAGE_BPS = [50, 100, 200] as const;
-const fmt = (v: number, d = 6) => v.toLocaleString("en-US", { maximumFractionDigits: d });
-const feeFraction = config.fee ? config.fee.feeBps / 10_000 : 0;
-const feePercent = `${(feeFraction * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
 
 export function App() {
   const [tokens, setTokens] = useState<TokenInfo[]>([]);
@@ -146,39 +120,6 @@ function sameToken(a: TokenInfo | null, b: TokenInfo | null): boolean {
   return Boolean(a && b && a.assetId === b.assetId);
 }
 
-function describeError(e: unknown): string {
-  if (e instanceof ApiError) return e.message;
-  if (e instanceof OneClickError) {
-    const body = e.body as { message?: string } | null;
-    const msg = body && typeof body.message === "string" ? body.message : e.message;
-    if (/refundTo/i.test(msg)) return "The route did not accept the refund address. Check it and try again.";
-    if (/recipient/i.test(msg)) return "The route did not accept the destination address. Check it and try again.";
-    if (/amount/i.test(msg)) return `The route did not accept the amount: ${msg}`;
-    return `The route said: ${msg}`;
-  }
-  return e instanceof Error ? e.message : String(e);
-}
-
-/** Screen both addresses and get a signed quote through the API when configured, else ask 1Click directly. */
-async function screenAndQuote(request: QuoteInput, chains: [string, string]): Promise<{ quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null } | { refused: string }> {
-  if (api) {
-    for (const [address, chain] of [
-      [request.refundTo, chains[0]],
-      [request.recipient, chains[1]],
-    ] as const) {
-      const v = await api.screen(address, chain);
-      if (!v.allowed) return { refused: v.reason ?? "This address cannot be served." };
-    }
-    const signed = await api.quote({ ...request, deadline: request.deadline instanceof Date ? request.deadline.toISOString() : String(request.deadline), dry: false });
-    if (!config.apiPubkey) return { refused: "This page has no pinned API key, so it cannot verify the quote. Set VITE_API_PUBKEY." };
-    const verified = await verifySignedQuote(signed, config.apiPubkey);
-    if (!verified) return { refused: "The quote did not verify against the pinned API key. Do not pay it." };
-    return { quote: signed.quote, signed, verified: true };
-  }
-  const quote = await client.quote(request);
-  return { quote, signed: null, verified: null };
-}
-
 function useZcashCheck(address: string): AddressCheck | null {
   const [check, setCheck] = useState<AddressCheck | null>(null);
   useEffect(() => {
@@ -240,7 +181,10 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
     | { kind: "form" }
     | { kind: "own"; quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null; token: TokenInfo; shielded: boolean }
     | { kind: "server"; swap: HostedSwap; signed: SignedQuote; verified: boolean | null; token: TokenInfo }
+    | { kind: "browser"; wallet: BrowserWallet; landing: Landing; quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null; token: TokenInfo; outToken: TokenInfo; dest: string }
+    | { kind: "browser-resume"; wallet: BrowserWallet; recovery: Recovery }
   >({ kind: "form" });
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const zec = useMemo(() => tokens.find((t) => t.blockchain === "zec" && t.symbol === "ZEC") ?? null, [tokens]);
   const a = useMemo(() => tokens.find((t) => t.assetId === inId) ?? null, [tokens, inId]);
@@ -259,6 +203,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
 
   const hostedInfo = hosted.known ? hosted.info : null;
   const serverOff = custody === "server" && (!api || hostedInfo === null);
+  const browserOff = custody === "browser" && !config.lwdGrpcWebUrl;
   const planned = a && amount ? planAmount(amount, a, mode, true) : null;
   const planError = planned && "error" in planned ? planned.error : null;
   const plan = planned && !("error" in planned) ? planned : null;
@@ -275,15 +220,17 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   let label = "GET DEPOSIT ADDRESS";
   if (!a || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
   else if (serverOff) label = "SERVER MODE IS OFF HERE";
-  else if (same || (b.blockchain === "zec" && custody === "server")) label = "PICK A DIFFERENT TOKEN";
+  else if (browserOff) label = "BROWSER WALLET IS OFF HERE";
+  else if (same || (b.blockchain === "zec" && custody !== "own")) label = "PICK A DIFFERENT TOKEN";
   else if (!plan) label = "ENTER AN AMOUNT";
   else if (!destCheck?.ok) label = custody === "own" ? "ADD YOUR ZCASH ADDRESS" : `ADD YOUR ${chainLabel(b.blockchain).toUpperCase()} ADDRESS`;
   else if (!refundCheck?.ok) label = "ADD A REFUND ADDRESS";
   const ready = label === "GET DEPOSIT ADDRESS" && !busy;
 
-  let tip: [string, "" | "ok" | "err"] = [custody === "own" ? "Pick what you send. It lands as ZEC in your own shielded wallet. You send it on from there." : "Pick what you send and what you want back. The server swims it through the pool for you.", ""];
+  let tip: [string, "" | "ok" | "err"] = [custody === "own" ? "Pick what you send. It lands as ZEC in your own shielded wallet. You send it on from there." : custody === "browser" ? "Pick what you send and what you want back. This tab makes a Zcash wallet for the swap and swims it through the pool itself." : "Pick what you send and what you want back. The server swims it through the pool for you.", ""];
   if (error) tip = [error, "err"];
   else if (serverOff) tip = [hosted.known ? "This server does not offer the hosted path. Pick your own wallet." : "Checking whether this server offers the hosted path.", "err"];
+  else if (browserOff) tip = ["This page was built without a Zcash wallet server, so the browser wallet is off. Pick your own wallet.", "err"];
   else if (same) tip = ["Same token on the same chain? Pick something else to receive.", "err"];
   else if (planError) tip = [planError, "err"];
   else if (destCheck && !destCheck.ok) tip = [destCheck.text, "err"];
@@ -314,6 +261,34 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         onStage("deposit");
         return;
       }
+      if (custody === "browser") {
+        if (!config.lwdGrpcWebUrl || !zec) throw new Error("The browser wallet needs a Zcash wallet server.");
+        const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl);
+        try {
+          const landing = await wallet.nextLanding();
+          const request: QuoteInput = {
+            swapType: "EXACT_INPUT",
+            slippageTolerance: slippage,
+            originAsset: a.assetId,
+            depositType: "ORIGIN_CHAIN",
+            destinationAsset: zec.assetId,
+            amount: plan.send.toString(),
+            refundTo: refund.trim(),
+            refundType: "ORIGIN_CHAIN",
+            recipient: landing.shielded,
+            recipientType: "DESTINATION_CHAIN",
+            deadline: new Date(Date.now() + 15 * 60_000),
+          };
+          const r = await screenAndQuote(request, [a.blockchain, "zec"]);
+          if ("refused" in r) throw new Error(r.refused);
+          setStep({ kind: "browser", wallet, landing, quote: r.quote, signed: r.signed, verified: r.verified, token: a, outToken: b, dest: dest.trim() });
+          onStage("deposit");
+        } catch (e) {
+          wallet.close();
+          throw e;
+        }
+        return;
+      }
       const request: QuoteInput = {
         swapType: "EXACT_INPUT",
         slippageTolerance: slippage,
@@ -341,11 +316,34 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   }
 
   function reset() {
+    if (step.kind === "browser" || step.kind === "browser-resume") step.wallet.close();
     setStep({ kind: "form" });
     setError(null);
     window.history.replaceState(null, "", window.location.pathname);
   }
 
+  async function resumeFromFile(file: File) {
+    if (!config.lwdGrpcWebUrl) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const recovery = parseRecovery(await file.text(), config.zcashNetwork);
+      const wallet = await BrowserWallet.recover(recovery, config.lwdGrpcWebUrl);
+      setStep({ kind: "browser-resume", wallet, recovery });
+      onStage("pool");
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (step.kind === "browser") {
+    return <BrowserSwap wallet={step.wallet} landing={step.landing} quote={step.quote} signed={step.signed} verified={step.verified} token={step.token} outToken={step.outToken} dest={step.dest} slippage={slippage} mode={mode} tokens={tokens} onStage={onStage} onDone={reset} />;
+  }
+  if (step.kind === "browser-resume") {
+    return <BrowserSwap wallet={step.wallet} recovery={step.recovery} tokens={tokens} onStage={onStage} onDone={reset} />;
+  }
   if (step.kind === "server") {
     return <HostedTracking id={step.swap.id} first={step.swap} signed={step.signed} tokens={tokens} verified={step.verified} onStage={onStage} onDone={reset} />;
   }
@@ -367,12 +365,14 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       </div>
       <div className="row2">
         <Toggle small label="Mode" value={mode} onChange={setMode} options={[{ value: "fast", title: "Fast", hint: "~5 min" }, { value: "quiet", title: "Quiet", hint: "rounded, random delay" }]} />
-        <Toggle small label="Who holds the coins in between" value={custody} onChange={(c) => { setCustody(c); setDest(""); setError(null); }} options={[{ value: "own", title: "My wallet", hint: "you hold the key" }, { value: "server", title: "Unpair server", hint: "we hold it" }]} />
+        <Toggle small label="Who holds the coins in between" value={custody} onChange={(c) => { setCustody(c); setDest(""); setError(null); }} options={[{ value: "own", title: "My wallet", hint: "you hold the key" }, { value: "browser", title: "This browser", hint: "the tab holds it" }, { value: "server", title: "Unpair server", hint: "we hold it" }]} />
       </div>
       <p className={custody === "server" ? "custody-note warn" : "custody-note"}>
         {custody === "server"
           ? "Unpair's server holds your coins between the two swaps and can see both ends. You can close the tab and come back with the link."
-          : "Your own Zcash wallet receives the ZEC into the shielded pool. Unpair never holds your coins in this mode. You send it on from your wallet when you like."}
+          : custody === "browser"
+            ? "A Zcash wallet runs inside this tab for this one swap and pays the second hop itself. Unpair never holds your coins in this mode. Keep the tab open; a recovery file brings the wallet back if it closes."
+            : "Your own Zcash wallet receives the ZEC into the shielded pool. Unpair never holds your coins in this mode. You send it on from your wallet when you like."}
       </p>
 
       <div className="box pay">
@@ -387,7 +387,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         <div className="meta"><span>{plan && a && plan.heldBack > 0n ? `Quiet mode rounds down to ${formatUnits(plan.send, a.decimals)}. The rest stays in your wallet.` : ""}</span></div>
       </div>
 
-      <PoolDivider {...(custody === "server" ? { onFlip: () => { setInId(outId); setOutId(inId); setDest(""); setRefund(""); } } : {})} />
+      <PoolDivider {...(custody !== "own" ? { onFlip: () => { setInId(outId); setOutId(inId); setDest(""); setRefund(""); } } : {})} />
 
       <div className="box pay">
         <div className="kv">
@@ -398,7 +398,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
           <output aria-live="polite">{out > 0 ? fmt(out) : "0"}</output>
           {custody === "own" ? <TokenButton token={zec} label="You receive ZEC" onClick={() => {}} /> : <TokenButton token={bPicked} label="Token you receive" onClick={() => setPicking("out")} />}
         </div>
-        <div className="meta"><span>{custody === "own" ? "into your shielded wallet" : "from a fresh source"}</span></div>
+        <div className="meta"><span>{custody === "own" ? "into your shielded wallet" : custody === "browser" ? "paid out by this tab's wallet" : "from a fresh source"}</span></div>
       </div>
 
       {a && b && plan && !same && (
@@ -423,6 +423,13 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       )}
       {custody === "server" && hostedInfo && (
         <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>
+      )}
+      {custody === "browser" && !browserOff && (
+        <p className="fine">
+          The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.{" "}
+          <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
+          <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
+        </p>
       )}
 
       <Mascot tone={tip[1]}>{tip[0]}</Mascot>
@@ -594,43 +601,6 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   );
 }
 
-function usePoll<T>(fn: (() => Promise<T>) | null, stop: boolean, everyMs = 7_000): { value: T | null; error: string | null } {
-  const [value, setValue] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const timer = useRef<number | null>(null);
-  useEffect(() => {
-    if (!fn || stop) return;
-    let alive = true;
-    const tick = async () => {
-      try {
-        const v = await fn();
-        if (alive) {
-          setValue(v);
-          setError(null);
-        }
-      } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : String(e));
-      }
-      if (alive) timer.current = window.setTimeout(tick, everyMs);
-    };
-    void tick();
-    return () => {
-      alive = false;
-      if (timer.current) window.clearTimeout(timer.current);
-    };
-  }, [fn, stop, everyMs]);
-  return { value, error };
-}
-
-function markSeed(signed: SignedQuote | null, quote: QuoteResponse): string {
-  return signed ? signed.signature.slice(0, 16) : (quote.quote.depositAddress ?? "").slice(0, 16);
-}
-
-function shortCode(seed: string): string {
-  const s = seed.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-  return `${s.slice(0, 4)}-${s.slice(4, 8)}`;
-}
-
 /** A quote the user pays from their own wallet, tracked on 1Click until it lands or returns. */
 function OwnTracking({ quote, signed, verified, token, direction, shielded, quiet, onStage, onDone, onSendOut }: {
   quote: QuoteResponse;
@@ -740,7 +710,10 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
 /** A hosted swap, from deposit to delivery. The tab may close and come back by link. */
 function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }: { id: string; first?: HostedSwap; signed?: SignedQuote; tokens: TokenInfo[]; verified: boolean | null; onStage: (s: HeroStage) => void; onDone: () => void }) {
   const [sent, setSent] = useState(false);
-  const pollFn = useMemo(() => (api ? () => api.hostedSwap(id) : null), [id]);
+  const pollFn = useMemo(() => {
+    const a = api;
+    return a ? () => a.hostedSwap(id) : null;
+  }, [id]);
   const [initial] = useState<HostedSwap | null>(first ?? null);
   const [final, setFinal] = useState(false);
   const { value: polled, error } = usePoll<HostedSwap>(pollFn, final);

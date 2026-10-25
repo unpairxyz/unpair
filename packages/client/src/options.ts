@@ -8,7 +8,7 @@
 import type { RouteId } from "@unpair/sdk";
 
 /** Where the ZEC lands. */
-export type WalletChoice = "own" | "unpair_app" | "hosted";
+export type WalletChoice = "own" | "browser" | "unpair_app" | "hosted";
 
 export interface WalletInfo {
   id: WalletChoice;
@@ -33,6 +33,14 @@ export const WALLET_CHOICES: readonly WalletInfo[] = [
     id: "own",
     title: "My own Zcash wallet",
     text: "Paste a fresh address from Zodl, Zingo, Zkool or any Zcash wallet. A shielded-only unified address is paid straight into the pool. A transparent address is shielded by your wallet on receipt. Unpair never holds the funds. The payout and its address are readable on chain for this one payment, so the link breaks when you later spend from your wallet.",
+    custody: "you",
+    available: true,
+    note: "",
+  },
+  {
+    id: "browser",
+    title: "This browser",
+    text: "The page makes a Zcash wallet for this one swap, inside the tab. It hands the route a fresh shielded address, waits for the ZEC to land, and pays the second hop itself. The key stays in the tab. You download a recovery file before you deposit; it is the only way back in if the tab closes. Unpair never holds the funds.",
     custody: "you",
     available: true,
     note: "",

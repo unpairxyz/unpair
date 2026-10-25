@@ -6,6 +6,8 @@
 #   VITE_OFFICIAL_ORIGIN https://your.domain
 #   VITE_API_URL         https://api.your.domain, or empty for no API
 #   VITE_API_PUBKEY      hex key from GET /v1/pubkey on that API
+#   VITE_LWD_GRPC_WEB_URL gRPC-web proxy for the browser wallet, or empty
+#   VITE_ZCASH_NETWORK   main or test
 #   PAGES_DOMAIN         your.domain, to write the CNAME file; empty for a
 #                        project page under /<repo>/
 # and this secret, optional:
@@ -44,6 +46,17 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @unpair/sdk build && pnpm --filter @unpair/client build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: wasm
+      - run: sudo apt-get update && sudo apt-get install -y clang lld
+      - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - name: The browser wallet, into public/wasm
+        run: CC_wasm32_unknown_unknown=clang apps/web/scripts/build-wasm.sh release
       - name: Token and chain icons, served from our own origin
         continue-on-error: true
         run: node apps/web/scripts/fetch-icons.mjs
@@ -54,6 +67,8 @@ jobs:
           VITE_OFFICIAL_ORIGIN: ${{ vars.VITE_OFFICIAL_ORIGIN }}
           VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_API_PUBKEY: ${{ vars.VITE_API_PUBKEY }}
+          VITE_LWD_GRPC_WEB_URL: ${{ vars.VITE_LWD_GRPC_WEB_URL }}
+          VITE_ZCASH_NETWORK: ${{ vars.VITE_ZCASH_NETWORK }}
           VITE_ONECLICK_JWT: ${{ secrets.VITE_ONECLICK_JWT }}
           BASE_PATH: ${{ vars.PAGES_DOMAIN == '' && format('/{0}/', github.event.repository.name) || '/' }}
         run: pnpm --filter @unpair/web build
