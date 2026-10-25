@@ -257,13 +257,18 @@ async fn run<C: Connector>(
         if tokio::time::Instant::now() >= next_cycle {
             report.cycles += 1;
             match cycle(&mut slot, pool).await {
-                Ok((height, sent)) => {
+                Ok((height, Ok(sent))) => {
                     report.synced_height = Some(height);
                     report.last_error = None;
                     shields.extend(sent);
                 }
+                Ok((height, Err(e))) => {
+                    report.synced_height = Some(height);
+                    tracing::warn!(error = %e, "shield step failed");
+                    report.last_error = Some(e);
+                }
                 Err(e) => {
-                    tracing::warn!(error = %e, "wallet cycle failed");
+                    tracing::warn!(error = %e, "sync failed");
                     report.last_error = Some(e);
                 }
             }
@@ -349,15 +354,17 @@ async fn pay<C: Connector>(
     })
 }
 
+/// Sync, then shield whatever landed on transparent receivers. The outer
+/// error is a sync failure; the inner one a shield failure after a good sync.
 async fn cycle<C: Connector>(
     slot: &mut Option<ShieldWallet>,
     pool: &Pool<C>,
-) -> Result<(u32, Vec<String>), String> {
+) -> Result<(u32, Result<Vec<String>, String>), String> {
     let wallet = slot.as_mut().ok_or("wallet is busy")?;
-    let tip = wallet.sync(pool).await.map_err(|e| e.to_string())?;
+    let tip = u32::from(wallet.sync(pool).await.map_err(|e| e.to_string())?);
     let from = wallet.known_landings().map_err(|e| e.to_string())?;
     if from.is_empty() {
-        return Ok((u32::from(tip), vec![]));
+        return Ok((tip, Ok(vec![])));
     }
     let mut w = slot.take().ok_or("wallet is busy")?;
     let (w, shielded) = tokio::task::spawn_blocking(move || {
@@ -367,19 +374,18 @@ async fn cycle<C: Connector>(
     .await
     .map_err(|e| format!("proving thread: {e}"))?;
     *slot = Some(w);
-    match shielded {
-        Ok(txs) => {
-            let mut sent = Vec::new();
-            for (txid, raw) in txs {
-                pool.send_raw_transaction(raw)
-                    .await
-                    .map_err(|e| e.to_string())?;
-                tracing::info!(%txid, "shield broadcast");
-                sent.push(txid.to_string());
-            }
-            Ok((u32::from(tip), sent))
+    let txs = match shielded {
+        Ok(txs) => txs,
+        Err(unpair_zcash::Error::NothingToShield) => return Ok((tip, Ok(vec![]))),
+        Err(e) => return Ok((tip, Err(e.to_string()))),
+    };
+    let mut sent = Vec::new();
+    for (txid, raw) in txs {
+        if let Err(e) = pool.send_raw_transaction(raw).await {
+            return Ok((tip, Err(e.to_string())));
         }
-        Err(unpair_zcash::Error::NothingToShield) => Ok((u32::from(tip), vec![])),
-        Err(e) => Err(e.to_string()),
+        tracing::info!(%txid, "shield broadcast");
+        sent.push(txid.to_string());
     }
+    Ok((tip, Ok(sent)))
 }

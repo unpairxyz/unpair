@@ -335,6 +335,7 @@ impl Store {
         })
     }
 
+    #[cfg(test)]
     pub fn open_in_memory() -> Result<Self, ApiError> {
         let conn = Connection::open_in_memory().map_err(internal)?;
         conn.execute_batch(SCHEMA).map_err(internal)?;
