@@ -44,9 +44,24 @@ Environment values are public and end up in the bundle:
 
 The Zcash address must be transparent, because the route pays transparent only.
 Use a fresh address from a wallet that shields on receipt, such as Zodl, Zingo or
-Zkool, or the Unpair app. The page refuses unified and Sapling addresses with a
-reason. This page is the bring-your-own-wallet front end. The Unpair app holds
-the key itself and needs no other wallet.
+Zkool. The page refuses unified and Sapling addresses with a reason. This page is
+the bring-your-own-wallet front end. The Unpair app holds the key itself and
+needs no other wallet; the page points to it as the other choice.
+
+## Choices on the page
+
+- **Swap in or Send out.** Swap in lands an asset in Zcash. Send out is the second
+  hop: ZEC leaves your shielded wallet and arrives as another asset at an address
+  you choose. You pay the route's Zcash address from your own wallet.
+- **Fast or quiet.** Quiet rounds the amount and suggests a random wait between
+  the hops.
+- **Where the ZEC lands.** Your own wallet, or the Unpair app.
+- **Route.** NEAR Intents today. Maya Protocol and THORChain are listed with the
+  reason they are off, so the choice is visible before it is live.
+- **More privacy options.** Rounding on or off, slippage, suggested or your own
+  timing for the second hop, and a Tor Browser hint.
+
+None of these add a party to trust. They all run on your device.
 
 ## With the API
 
