@@ -40,7 +40,8 @@ Packages live under `packages/`, apps under `apps/`.
 
 - `packages/sdk`: TypeScript client for routes, fees, rounding, release timers and transport. Done first, see its README.
 - `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Ironwood, ZIP-317 fees. The core of the app. See its README.
-- `apps/desktop`: the Unpair app. Holds the key, shields, runs the second hop. Not started yet.
+- `apps/desktop`: the Unpair app, Tauri on the Rust crate. Holds the key in the system keychain, issues a landing address per swap, shields on sync. Second hop and signed releases to come. See its README.
+- `packages/client`: TypeScript shared by the web page and the app: API client, signed quote checks, swap planning, address checks.
 - `apps/web`: static web page for people who already run a wallet that shields on receipt. Fast and quiet modes, client-side quotes. See its README.
 - `apps/api`: Rust service for screening, signed quotes and status. Holds no key. See its README.
 - `docs/`: [threat model](docs/threat-model.md), [fees](docs/fees.md), [screening policy](docs/screening-policy.md), [self-host guide](docs/self-host.md).

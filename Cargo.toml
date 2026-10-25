@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["packages/zcash", "apps/api"]
+members = ["packages/zcash", "apps/api", "apps/desktop/src-tauri"]
 
 [workspace.package]
 edition = "2021"

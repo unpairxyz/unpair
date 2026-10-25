@@ -6,3 +6,4 @@ coverage/
 .env
 .env.*
 target/
+apps/desktop/src-tauri/gen/
