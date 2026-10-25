@@ -11,3 +11,4 @@ export { kindOf, PLACEHOLDER } from "./address";
 export { sortTokens, searchTokens, formatPrice, isNative, chainLabel } from "./tokens";
 export { CardHead, Segment, Keeper, Legs, Leg, AddressRows, AddressRow, Hint, Summary, type Tab } from "./Card";
 export { currentTheme, setTheme, THEME_EVENT, type ThemeName } from "./themeMode";
+export { Qr } from "./Qr";
