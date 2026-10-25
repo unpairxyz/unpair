@@ -232,7 +232,9 @@ dialog h3{margin:0 0 8px;font:400 34px var(--sfx);letter-spacing:.05em}
 .slip button+button{border-left:2px solid var(--ink)}
 .slip button[aria-checked=true]{background:var(--ink);color:var(--paper)}
 .qr{margin-top:10px;display:grid;place-items:center}
-.qr img,.qr canvas,.qr svg{width:180px;height:180px;image-rendering:pixelated;border:3px solid var(--ink);padding:6px;background:var(--paper)}
+/* QR codes stay black on white in both themes */
+.qr img,.qr canvas,.qr svg{width:200px;height:200px;image-rendering:pixelated;border:3px solid var(--ink);background:#fff}
+.qrbtn{margin-top:8px}
 /* picker */
 .picker{max-width:460px;padding:0}
 .picker .ph{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 8px}
