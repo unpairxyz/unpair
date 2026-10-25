@@ -38,7 +38,7 @@ Packages live under `packages/`, apps under `apps/`.
 
 - `packages/sdk`: TypeScript client for routes, fees, rounding, release timers and transport. Done first, see its README.
 - `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Orchard, ZIP-317 fees. See its README.
-- `apps/web`: static web app, self-hostable.
+- `apps/web`: static web app, self-hostable. Fast and quiet modes, client-side quotes. See its README.
 - `apps/api`: Rust service for watching, shielding and screening.
 - `docs/`: threat model, fee table, screening policy and self-host guide.
 
