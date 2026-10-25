@@ -23,7 +23,11 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(start)]
 fn start() {
     console_error_panic_hook::set_once();
-    tracing_wasm::set_as_global_default();
+    // INFO keeps the sync progress in the console; TRACE floods it.
+    let config = tracing_wasm::WASMLayerConfigBuilder::new()
+        .set_max_level(tracing::Level::INFO)
+        .build();
+    tracing_wasm::set_as_global_default_with_config(config);
 }
 
 /// A landing for one swap.
