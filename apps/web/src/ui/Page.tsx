@@ -85,7 +85,7 @@ export function Masthead() {
       <Dialog open={open === "faq"} title="FAQ" onClose={close}>
         <p><b>What do I get?</b> The token you pick, on the chain you pick, at your address. It comes from a fresh source, not from your deposit.</p>
         <p><b>Wrong amount?</b> Less: send the rest before the deadline, or it is refunded. More: the extra is refunded.</p>
-        <p><b>What do you see?</b> Browser mode: nothing that links you. Server mode: our server sees both ends while it holds your coins. No analytics in either mode.</p>
+        <p><b>What do you see?</b> With your Zcash wallet or a one-time wallet: nothing that links you. With the Unpair server: our server sees both ends while it holds your coins. No analytics in any mode.</p>
       </Dialog>
     </>
   );

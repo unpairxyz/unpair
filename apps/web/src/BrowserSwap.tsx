@@ -228,7 +228,7 @@ export function BrowserSwap(props: Props) {
     return (
       <div>
         <div className="wtitle"><b>SAVE THE RECOVERY FILE</b><span className="chip">before you deposit</span></div>
-        <p style={{ margin: 0, font: "700 15px var(--ui)" }}>This tab now holds a Zcash wallet made for this one swap. The file holds its key and where the swap goes next. It is the only way back in if the tab closes before the swap is done.</p>
+        <p style={{ margin: 0, font: "700 15px var(--ui)" }}>This tab now holds a one-time Zcash wallet, made for this one swap. The file holds its key and where the swap goes next. It is the only way back in if the tab closes before the swap is done.</p>
         <Mascot>Keep the file where only you can read it. Anyone with it can spend what lands in this wallet.</Mascot>
         {error && <p className="err-line">{error}</p>}
         <GoButton onClick={() => void download()}>{saved ? "DOWNLOAD IT AGAIN" : "DOWNLOAD THE RECOVERY FILE"}</GoButton>
@@ -243,7 +243,7 @@ export function BrowserSwap(props: Props) {
       <div>
         <div className="wtitle"><b>PAY THE TAB</b><span className="chip">from your Zcash wallet</span></div>
         <p style={{ margin: 0, font: "700 15px var(--ui)" }}>Send the ZEC you want to move to this tab's shielded address, from Zodl, Zingo, Zkool or any wallet. Once it lands, the tab sends it on to {outToken?.symbol ?? "your asset"} on {chainLabel(outToken?.blockchain ?? "")} at your address.</p>
-        <div className="box"><span className="lbl">This tab's Zcash address, shielded</span><Address value={props.landing.shielded} /></div>
+        <div className="box"><span className="lbl">One-time wallet address, shielded</span><Address value={props.landing.shielded} /></div>
         <Mascot>Pay from a shielded balance. Any amount works; the tab sends on what lands, minus the network fee.</Mascot>
         <GoButton onClick={() => setPhase("pool")}>I SENT IT!</GoButton>
         {startOver}
@@ -272,7 +272,7 @@ export function BrowserSwap(props: Props) {
           <details className="det">
             <summary><span>Already hold ZEC?</span><span className="code">DIRECT</span></summary>
             <p className="fine">Send any amount of ZEC from your own wallet to this tab's shielded address instead. That skips the first hop. Once it lands, the tab sends it on to {outToken?.symbol ?? "your asset"} as planned.</p>
-            <div className="box"><span className="lbl">This tab's Zcash address, shielded</span><Address value={props.landing.shielded} /></div>
+            <div className="box"><span className="lbl">One-time wallet address, shielded</span><Address value={props.landing.shielded} /></div>
             <GoButton ghost onClick={() => setPhase("pool")}>I SENT ZEC DIRECTLY</GoButton>
           </details>
           {startOver}
@@ -338,7 +338,7 @@ export function BrowserSwap(props: Props) {
               : STATE_COPY[state2].text}
       </p>
       {(status1?.swapDetails.refundReason || status2?.swapDetails.refundReason) && <p className="err-line">Reason: {status2?.swapDetails.refundReason ?? status1?.swapDetails.refundReason}</p>}
-      {state2 === "landed" && <Mascot face="happy" red={false}>The wallet in this tab is empty now. Its key is forgotten when you leave. Keep the recovery file anyway until you have checked your balance.</Mascot>}
+      {state2 === "landed" && <Mascot face="happy" red={false}>The one-time wallet is empty now. Its key is forgotten when you leave. Keep the recovery file anyway until you have checked your balance.</Mascot>}
       {error && <p className="err-line">{error}</p>}
       {working && <p className="fine">{working}</p>}
       {state2 === "refunded" && <GoButton disabled={working !== null} onClick={() => void shieldRefund()}>SHIELD THE REFUND AND TRY AGAIN</GoButton>}
