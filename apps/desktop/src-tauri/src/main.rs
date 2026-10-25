@@ -17,7 +17,7 @@ use unpair_zcash::keys::Seed;
 use zcash_protocol::consensus::Network;
 
 use settings::Settings;
-use wallet::{LandingInfo, Report, WalletConfig, WalletHandle};
+use wallet::{LandingInfo, PayoutInfo, Report, WalletConfig, WalletHandle};
 
 struct AppState {
     data_dir: PathBuf,
@@ -203,6 +203,17 @@ async fn wallet_sync_now(state: State<'_, AppState>) -> Result<Report, String> {
     handle(&state)?.sync_now().await
 }
 
+/// Hop two. Pay `amount_zats` from this wallet's Ironwood notes to a transparent
+/// address, normally a route's deposit address. The fee is the ZIP 317 fee.
+#[tauri::command]
+async fn wallet_pay(
+    state: State<'_, AppState>,
+    to: String,
+    amount_zats: u64,
+) -> Result<PayoutInfo, String> {
+    handle(&state)?.pay(to, amount_zats).await
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -236,6 +247,7 @@ fn main() {
             wallet_next_landing,
             wallet_report,
             wallet_sync_now,
+            wallet_pay,
         ])
         .run(tauri::generate_context!())
         .expect("unpair-desktop failed to start");

@@ -11,7 +11,8 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 use unpair_zcash::keys::{encode_transparent, Seed};
 use unpair_zcash::lightwalletd::{default_endpoints, Connector, Pool};
-use unpair_zcash::wallet::{ShieldPolicy, ShieldWallet};
+use unpair_zcash::wallet::{Balance, ShieldPolicy, ShieldWallet};
+use unpair_zcash::Zatoshis;
 use zcash_protocol::consensus::{BlockHeight, Network};
 
 #[derive(Clone, Serialize)]
@@ -22,11 +23,39 @@ pub struct LandingInfo {
 }
 
 #[derive(Clone, Serialize, Default)]
+pub struct BalanceInfo {
+    pub ironwood_spendable: u64,
+    pub ironwood_total: u64,
+    pub unshielded: u64,
+    pub other_pools: u64,
+}
+
+impl From<Balance> for BalanceInfo {
+    fn from(b: Balance) -> Self {
+        Self {
+            ironwood_spendable: b.ironwood_spendable,
+            ironwood_total: b.ironwood_total,
+            unshielded: b.unshielded,
+            other_pools: b.orchard_total + b.sapling_total,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct PayoutInfo {
+    pub txid: String,
+    pub fee: u64,
+}
+
+#[derive(Clone, Serialize, Default)]
 pub struct Report {
     /// Every landing address this wallet has ever issued.
     pub landings: Vec<String>,
     /// Shield transactions broadcast since the app started.
     pub shield_txids: Vec<String>,
+    /// Hop-two payouts broadcast since the app started.
+    pub payout_txids: Vec<String>,
+    pub balance: BalanceInfo,
     pub synced_height: Option<u32>,
     pub last_error: Option<String>,
     pub cycles: u64,
@@ -42,10 +71,17 @@ pub struct WalletConfig {
     pub lightwalletd: Vec<String>,
 }
 
+type PayRequest = (String, u64, oneshot::Sender<Result<PayoutInfo, String>>);
+
 enum Cmd {
     NextLanding(oneshot::Sender<Result<LandingInfo, String>>),
     Report(oneshot::Sender<Report>),
     SyncNow(oneshot::Sender<Report>),
+    Pay {
+        to: String,
+        amount: u64,
+        reply: oneshot::Sender<Result<PayoutInfo, String>>,
+    },
 }
 
 #[derive(Clone)]
@@ -73,6 +109,10 @@ impl WalletHandle {
 
     pub async fn sync_now(&self) -> Result<Report, String> {
         self.ask(Cmd::SyncNow).await
+    }
+
+    pub async fn pay(&self, to: String, amount: u64) -> Result<PayoutInfo, String> {
+        self.ask(|reply| Cmd::Pay { to, amount, reply }).await?
     }
 }
 
@@ -170,9 +210,11 @@ async fn run<C: Connector>(
     let mut slot = Some(wallet);
     let mut report = Report::default();
     let mut txids: BTreeSet<String> = BTreeSet::new();
+    let mut payouts: BTreeSet<String> = BTreeSet::new();
     let mut next_cycle = tokio::time::Instant::now();
     loop {
         let mut sync_requests: Vec<oneshot::Sender<Report>> = Vec::new();
+        let mut pay_requests: Vec<PayRequest> = Vec::new();
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
                 Cmd::NextLanding(reply) => {
@@ -188,11 +230,19 @@ async fn run<C: Connector>(
                     let _ = reply.send(res);
                 }
                 Cmd::Report(reply) => {
-                    fill(&mut report, slot.as_ref(), &txids);
+                    fill(&mut report, slot.as_ref(), &txids, &payouts);
                     let _ = reply.send(report.clone());
                 }
                 Cmd::SyncNow(reply) => sync_requests.push(reply),
+                Cmd::Pay { to, amount, reply } => pay_requests.push((to, amount, reply)),
             }
+        }
+        for (to, amount, reply) in pay_requests {
+            let res = pay(&mut slot, pool, to, amount).await;
+            if let Ok(p) = &res {
+                payouts.insert(p.txid.clone());
+            }
+            let _ = reply.send(res);
         }
         if !sync_requests.is_empty() || tokio::time::Instant::now() >= next_cycle {
             report.cycles += 1;
@@ -210,7 +260,7 @@ async fn run<C: Connector>(
             }
             report.syncing = false;
             next_cycle = tokio::time::Instant::now() + interval;
-            fill(&mut report, slot.as_ref(), &txids);
+            fill(&mut report, slot.as_ref(), &txids, &payouts);
             for reply in sync_requests {
                 let _ = reply.send(report.clone());
             }
@@ -219,15 +269,55 @@ async fn run<C: Connector>(
     }
 }
 
-fn fill(report: &mut Report, wallet: Option<&ShieldWallet>, txids: &BTreeSet<String>) {
+fn fill(
+    report: &mut Report,
+    wallet: Option<&ShieldWallet>,
+    txids: &BTreeSet<String>,
+    payouts: &BTreeSet<String>,
+) {
     if let Some(wallet) = wallet {
         let net = wallet.network();
         report.landings = wallet
             .known_landings()
             .map(|v| v.iter().map(|a| encode_transparent(&net, a)).collect())
             .unwrap_or_default();
+        if let Ok(b) = wallet.balance() {
+            report.balance = b.into();
+        }
     }
     report.shield_txids = txids.iter().cloned().collect();
+    report.payout_txids = payouts.iter().cloned().collect();
+}
+
+/// Hop two: sync, build the Ironwood-only payment on a blocking thread, broadcast.
+async fn pay<C: Connector>(
+    slot: &mut Option<ShieldWallet>,
+    pool: &Pool<C>,
+    to: String,
+    amount: u64,
+) -> Result<PayoutInfo, String> {
+    let amount = Zatoshis::from_u64(amount).map_err(|_| "amount out of range".to_string())?;
+    {
+        let wallet = slot.as_mut().ok_or("wallet is busy")?;
+        wallet.sync(pool).await.map_err(|e| e.to_string())?;
+    }
+    let mut w = slot.take().ok_or("wallet is busy")?;
+    let (w, built) = tokio::task::spawn_blocking(move || {
+        let r = w.pay_transparent(&to, amount);
+        (w, r)
+    })
+    .await
+    .map_err(|e| format!("proving thread: {e}"))?;
+    *slot = Some(w);
+    let payout = built.map_err(|e| e.to_string())?;
+    pool.send_raw_transaction(payout.raw.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    tracing::info!(txid = %payout.txid, "payout broadcast");
+    Ok(PayoutInfo {
+        txid: payout.txid.to_string(),
+        fee: payout.fee.into_u64(),
+    })
 }
 
 async fn cycle<C: Connector>(

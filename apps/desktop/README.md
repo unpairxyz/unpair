@@ -10,9 +10,14 @@ What it does:
 - Derives a fresh transparent landing address for every swap, gives it to the
   route as the recipient, and shields whatever lands there into Ironwood on the
   next sync. Sync runs every 90 seconds and on demand.
+- Sends out of the pool, hop two. ZEC leaves Ironwood to a route's deposit address
+  and arrives as another asset where you say. Only Ironwood notes are spent, change
+  goes back to Ironwood, and the app refuses to build in the last 40 blocks before
+  a network upgrade.
 - Restores from a phrase, with an optional birthday height to bound the rescan.
 
-Still to come: the second hop for quiet mode, Tor on by default with a
+Still to come: the quiet mode scheduler that rounds and times hop two for you,
+Tor on by default with a
 "connecting privately" state on first run, Sapling parameters fetched over Tor or
 bundled instead of over clearnet, a passphrase fallback for Linux systems without
 a Secret Service, and signed releases with published hashes. Reproducible builds

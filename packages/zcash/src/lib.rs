@@ -17,6 +17,7 @@ pub mod error;
 pub mod fees;
 pub mod keys;
 pub mod lightwalletd;
+pub mod send;
 #[cfg(feature = "tor")]
 pub mod tor;
 pub mod wallet;

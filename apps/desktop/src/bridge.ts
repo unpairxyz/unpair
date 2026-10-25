@@ -19,9 +19,23 @@ export interface Landing {
   index: number;
 }
 
+export interface BalanceInfo {
+  ironwood_spendable: number;
+  ironwood_total: number;
+  unshielded: number;
+  other_pools: number;
+}
+
+export interface Payout {
+  txid: string;
+  fee: number;
+}
+
 export interface WalletReport {
   landings: string[];
   shield_txids: string[];
+  payout_txids: string[];
+  balance: BalanceInfo;
   synced_height: number | null;
   last_error: string | null;
   cycles: number;
@@ -39,6 +53,7 @@ export const wallet = {
   nextLanding: () => invoke<Landing>("wallet_next_landing"),
   report: () => invoke<WalletReport>("wallet_report"),
   syncNow: () => invoke<WalletReport>("wallet_sync_now"),
+  pay: (to: string, amountZats: bigint) => invoke<Payout>("wallet_pay", { to, amountZats: Number(amountZats) }),
 };
 
 export function errorText(e: unknown): string {

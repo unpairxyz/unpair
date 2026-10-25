@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 
 use rand::rngs::SysRng;
 use rand_core::{Infallible, TryCryptoRng, TryRng};
-use zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelector;
+use zcash_client_backend::data_api::wallet::input_selection::{GreedyInputSelector, SpendPolicy};
 use zcash_client_backend::data_api::wallet::{
-    create_proposed_transactions, propose_shielding, ConfirmationsPolicy, SpendingKeys,
+    create_proposed_transactions, propose_shielding, propose_transfer, ConfirmationsPolicy,
+    SpendingKeys,
 };
 use zcash_client_backend::data_api::{
     Account as _, AccountBirthday, CoinbaseFilter, WalletRead, WalletWrite,
@@ -23,7 +24,7 @@ use zcash_client_backend::fees::{DustOutputPolicy, StandardFeeRule};
 use zcash_client_backend::proto::service::TreeState;
 use zcash_client_backend::sync;
 use zcash_client_backend::util::SystemClock;
-use zcash_client_backend::wallet::OvkPolicy;
+use zcash_client_backend::wallet::{Note, OvkPolicy};
 use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_client_sqlite::{AccountUuid, WalletDb};
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey, UnifiedSpendingKey};
@@ -31,13 +32,14 @@ use zcash_primitives::transaction::TxId;
 use zcash_proofs::prover::LocalTxProver;
 use zcash_protocol::consensus::{BlockHeight, Network};
 use zcash_protocol::value::Zatoshis;
-use zcash_protocol::ShieldedPool;
+use zcash_protocol::{PoolType, ShieldedPool};
 use zcash_transparent::address::TransparentAddress;
 
 use crate::cache::MemBlockCache;
 use crate::error::Error;
 use crate::keys::{spending_key, Landing, Seed};
 use crate::lightwalletd::{Connector, Pool};
+use crate::send::{check_payout_address, upgrade_guard};
 
 /// The operating system's random source as an infallible RNG. It is `Send`,
 /// `Sync` and `Clone`, so a `ShieldWallet` can move to a blocking thread for
@@ -86,6 +88,26 @@ impl Default for ShieldPolicy {
             sync_batch_size: 1000,
         }
     }
+}
+
+/// Account value by pool, in zatoshis. Only Ironwood is spendable by Unpair.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Balance {
+    pub ironwood_spendable: u64,
+    pub ironwood_total: u64,
+    pub orchard_total: u64,
+    pub sapling_total: u64,
+    pub unshielded: u64,
+    pub chain_tip: Option<u32>,
+    pub scanned_to: Option<u32>,
+}
+
+/// A built hop-two transaction, ready to broadcast.
+#[derive(Clone, Debug)]
+pub struct Payout {
+    pub txid: TxId,
+    pub raw: Vec<u8>,
+    pub fee: Zatoshis,
 }
 
 pub struct ShieldWallet {
@@ -333,6 +355,163 @@ impl ShieldWallet {
             out.push((txid, raw));
         }
         Ok(out)
+    }
+
+    /// Spendable and pending value in this account, by pool.
+    pub fn balance(&self) -> Result<Balance, Error> {
+        let summary = self
+            .db
+            .get_wallet_summary(ConfirmationsPolicy::default())
+            .map_err(Error::wallet)?;
+        let Some(summary) = summary else {
+            return Ok(Balance::default());
+        };
+        let mut b = Balance {
+            chain_tip: Some(u32::from(summary.chain_tip_height())),
+            scanned_to: Some(u32::from(summary.fully_scanned_height())),
+            ..Default::default()
+        };
+        if let Some(a) = summary.account_balances().get(&self.account) {
+            b.ironwood_spendable = a.ironwood_balance().spendable_value().into_u64();
+            b.ironwood_total = a.ironwood_balance().total().into_u64();
+            b.orchard_total = a.orchard_balance().total().into_u64();
+            b.sapling_total = a.sapling_balance().total().into_u64();
+            b.unshielded = a.unshielded_balance().total().into_u64();
+        }
+        Ok(b)
+    }
+
+    /// Hop two. Build, prove, sign and store a transaction that pays `amount`
+    /// to the transparent address `to` from Ironwood notes only, with change
+    /// back to Ironwood. Returns the txid, the serialised transaction and the
+    /// fee paid. Call `sync` first. Refuses within [`crate::send::UPGRADE_GUARD_BLOCKS`]
+    /// of a network upgrade.
+    pub fn pay_transparent(&mut self, to: &str, amount: Zatoshis) -> Result<Payout, Error> {
+        let network = self.network;
+        let recipient = check_payout_address(&network, to)?;
+        if let Some(tip) = self.db.chain_height().map_err(Error::wallet)? {
+            upgrade_guard(&network, tip)?;
+        }
+        let request =
+            zip321::TransactionRequest::new(vec![zip321::Payment::without_memo(recipient, amount)])
+                .map_err(|e| Error::Send(format!("{e:?}")))?;
+
+        let selector = GreedyInputSelector::<Db>::new();
+        let change = SingleOutputChangeStrategy::new(
+            StandardFeeRule::Zip317,
+            None,
+            ShieldedPool::Ironwood,
+            DustOutputPolicy::default(),
+        );
+        let spend_policy = SpendPolicy::shielded_pools([ShieldedPool::Ironwood]);
+        let proposal = propose_transfer::<
+            Db,
+            Network,
+            GreedyInputSelector<Db>,
+            SingleOutputChangeStrategy<StandardFeeRule, Db>,
+            std::convert::Infallible,
+        >(
+            &mut self.db,
+            &network,
+            self.account,
+            &selector,
+            &change,
+            request,
+            ConfirmationsPolicy::default(),
+            &spend_policy,
+            None,
+            None,
+        )
+        .map_err(|e| {
+            let text = format!("{e:?}");
+            if text.contains("InsufficientFunds") {
+                Error::InsufficientFunds
+            } else {
+                Error::Send(text)
+            }
+        })?;
+
+        // The proposal must be the one shape we expect: one step, Ironwood
+        // notes in, Ironwood change out, nothing transparent spent.
+        if proposal.steps().len() != 1 {
+            return Err(Error::Send(
+                "the route needs more than one transaction".into(),
+            ));
+        }
+        let step = proposal.steps().first();
+        if !step.transparent_inputs().is_empty() {
+            return Err(Error::Send("proposal spends transparent funds".into()));
+        }
+        if let Some(inputs) = step.shielded_inputs() {
+            for n in inputs.notes().iter() {
+                if !matches!(
+                    n.note(),
+                    Note::Orchard {
+                        pool: orchard::ValuePool::Ironwood,
+                        ..
+                    }
+                ) {
+                    return Err(Error::Send(
+                        "proposal spends a note outside Ironwood".into(),
+                    ));
+                }
+            }
+        }
+        for c in step.balance().proposed_change() {
+            if c.output_pool() != PoolType::IRONWOOD {
+                return Err(Error::Send(format!(
+                    "proposal sends change to {}",
+                    c.output_pool()
+                )));
+            }
+        }
+        let fee = step.balance().fee_required();
+
+        let prover = self.prover()?;
+        let keys = SpendingKeys::from_unified_spending_key(self.usk.clone());
+        let mut rng = rand::rng();
+        let txids = create_proposed_transactions::<
+            Db,
+            Network,
+            std::convert::Infallible,
+            StandardFeeRule,
+            std::convert::Infallible,
+            zcash_client_sqlite::ReceivedNoteId,
+        >(
+            &mut self.db,
+            &self.network,
+            &SystemClock,
+            &mut rng,
+            &prover,
+            &prover,
+            &keys,
+            OvkPolicy::Sender,
+            &proposal,
+            None,
+        )
+        .map_err(|e| Error::Send(format!("{e:?}")))?;
+        let txid = *txids.first();
+        let tx = self
+            .db
+            .get_transaction(txid)
+            .map_err(Error::wallet)?
+            .ok_or_else(|| Error::Send(format!("built transaction {txid} not found in wallet")))?;
+        let mut raw = Vec::new();
+        tx.write(&mut raw)?;
+        Ok(Payout { txid, raw, fee })
+    }
+
+    /// Sync, pay, broadcast. Hop two in one call.
+    pub async fn sync_and_pay<C: Connector>(
+        &mut self,
+        pool: &Pool<C>,
+        to: &str,
+        amount: Zatoshis,
+    ) -> Result<Payout, Error> {
+        self.sync(pool).await?;
+        let payout = self.pay_transparent(to, amount)?;
+        pool.send_raw_transaction(payout.raw.clone()).await?;
+        Ok(payout)
     }
 
     /// Sync, shield everything on `from`, broadcast. The one-step auto-shield.
