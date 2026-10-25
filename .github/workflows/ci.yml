@@ -50,9 +50,9 @@ jobs:
           key: wasm
       - run: sudo apt-get update && sudo apt-get install -y clang lld
       - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
-      - run: CC_wasm32_unknown_unknown=clang apps/web/scripts/build-wasm.sh dev
+      - run: CC_wasm32_unknown_unknown=clang apps/web/scripts/build-wasm.sh release
       - uses: actions/upload-artifact@v4
         with:
-          name: browser-wallet-dev
+          name: browser-wallet
           path: apps/web/public/wasm
           retention-days: 3
