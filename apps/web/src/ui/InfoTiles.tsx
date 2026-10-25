@@ -1,12 +1,16 @@
 import { useEffect, useRef } from "react";
 import { drawMark } from "./school";
 import { Fish } from "./Sprites";
+import { THEME_EVENT } from "./themeMode";
 
 /** Quote mark: drawn from the quote signature, so a second device shows the same picture. */
 export function QuoteMark({ seed, size = 62, className }: { seed: string; size?: number; className?: string }) {
   const cv = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (cv.current) drawMark(cv.current, seed);
+    const draw = () => cv.current && drawMark(cv.current, seed);
+    draw();
+    addEventListener(THEME_EVENT, draw);
+    return () => removeEventListener(THEME_EVENT, draw);
   }, [seed, size]);
   return <canvas ref={cv} className={className} role="img" aria-label="Quote mark" style={{ width: size, height: size }} />;
 }
@@ -21,15 +25,15 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
           <div className="half">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
               <g transform="translate(4 4)"><use href="#fishBody" style={{ ["--fill" as string]: "#FF2E4D" }} width="64" height="40" /><use href="#eyeHappy" width="64" height="40" /></g>
-              <g transform="translate(78 8) rotate(20)"><circle cx="9" cy="9" r="8" fill="#fff" stroke="#000" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="#000" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="#000" strokeWidth="3" strokeLinecap="round" /></g>
+              <g transform="translate(78 8) rotate(20)"><circle cx="9" cy="9" r="8" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="var(--ink)" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" /></g>
             </svg>
-            <b className="ht">MY BROWSER</b>
-            <p>You hold the key. Keep the tab open, or save the recovery file.</p>
+            <b className="ht">MY WALLET</b>
+            <p>The ZEC lands in your own Zcash wallet, or in a wallet in this tab. We never hold it.</p>
           </div>
           <div className="half tone">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
-              <g transform="translate(70 2)"><rect x="0" y="2" width="40" height="44" fill="#fff" stroke="#000" strokeWidth="3" /><path d="M7 14 h26 M7 24 h26 M7 34 h26" stroke="#000" strokeWidth="3" /></g>
-              <g transform="translate(2 8)"><use href="#fishBody" style={{ ["--fill" as string]: "#fff" }} width="60" height="38" /><use href="#eyeSleep" width="60" height="38" /></g>
+              <g transform="translate(70 2)"><rect x="0" y="2" width="40" height="44" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><path d="M7 14 h26 M7 24 h26 M7 34 h26" stroke="var(--ink)" strokeWidth="3" /></g>
+              <g transform="translate(2 8)"><use href="#fishBody" style={{ ["--fill" as string]: "var(--paper)" }} width="60" height="38" /><use href="#eyeSleep" width="60" height="38" /></g>
             </svg>
             <b className="ht">UNPAIR SERVER</b>
             <p><span className="hl">We hold the coins between swaps and see both ends. You can close the tab.</span></p>
@@ -40,7 +44,7 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
       <section className="p vsp"><div className="in">
         <div className="vsdots" aria-hidden="true" />
         <svg className="vsline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          <line x1="56" y1="0" x2="44" y2="100" stroke="#000" strokeWidth="5" vectorEffect="non-scaling-stroke" />
+          <line x1="56" y1="0" x2="44" y2="100" stroke="var(--ink)" strokeWidth="5" vectorEffect="non-scaling-stroke" />
         </svg>
         <div className="vsl">
           <h3>FAST</h3>
