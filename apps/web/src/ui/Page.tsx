@@ -35,7 +35,7 @@ export function Masthead() {
       </div>
       <Dialog open={open === "how"} title="HOW IT WORKS" onClose={close}>
         <p>1. You send any token from any chain. That deposit is public.<br />2. It swaps into Zcash and goes into the shielded pool.<br />3. In the pool every coin looks the same.<br />4. A fresh source swaps out to the token you chose, at the address you chose.</p>
-        <p>Fills come from NEAR Intents. It sees each leg while it runs. Between the two swaps, your browser or our server holds the coins. You choose.</p>
+        <p>Each leg goes through a swap route, today NEAR Intents. The route sees its leg while it runs. Between the two swaps, you choose who holds the coins.</p>
       </Dialog>
       <Dialog open={open === "verify"} title="VERIFY THIS SITE" onClose={close}>
         <p>Every quote is signed. The mark is drawn from the signature. Open the same quote on a second device: mark and code must match. A clone with its own server draws its own mark, so also check the signature against the key in our GitHub README. The address bar must say unpair.xyz.</p>
@@ -53,7 +53,7 @@ export function Footer() {
   return (
     <footer>
       <span className="tbc">TO BE CONTINUED...</span>
-      <span>unpair.xyz · <a href="https://github.com/unpairxyz/unpair">GitHub</a> · MIT · not yet audited</span>
+      <span>unpair.xyz · <a href="https://github.com/unpairxyz/unpair">GitHub</a></span>
     </footer>
   );
 }
