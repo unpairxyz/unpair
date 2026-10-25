@@ -3,11 +3,12 @@
 import { StrictMode, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { OneClickClient, type TokenInfo } from "@unpair/sdk";
+import { checkAddressForChain } from "@unpair/client";
 import { chainLabel } from "./tokens";
 import "./theme.css";
 import {
   Address, DoneBurst, Footer, GoButton, Hero, InfoTiles, Mascot, Masthead, PLACEHOLDER, PoolDivider, QuoteMark,
-  Sprites, StatusStrip, Story, Toggle, TokenButton, TokenPicker, WidgetPanel, checkShape, kindOf, type HeroStage,
+  Sprites, StatusStrip, Story, Toggle, TokenButton, TokenPicker, WidgetPanel, kindOf, type HeroStage,
 } from "./index";
 
 type Mode = "fast" | "quiet";
@@ -55,8 +56,8 @@ function Preview() {
   const raw = parseFloat(amount.replace(",", ".")) || 0;
   const amt = mode === "quiet" ? round125(raw) : raw;
   const out = a && b && b.price ? (amt * a.price * 0.995) / b.price : 0;
-  const d = b ? checkShape(dest, b.blockchain, "receiving") : null;
-  const r = a ? checkShape(refund, a.blockchain, "refund") : null;
+  const d = b && dest.trim() ? checkAddressForChain(dest, b.blockchain) : null;
+  const r = a && refund.trim() ? checkAddressForChain(refund, a.blockchain) : null;
   const same = !!a && a.assetId === b?.assetId;
 
   let label = "GET DEPOSIT ADDRESS";
@@ -69,8 +70,8 @@ function Preview() {
 
   let tip: [string, "" | "ok" | "err"] = ["Pick what you send and what you want back. I swim through the pool in between.", ""];
   if (same) tip = ["Same token on the same chain? Pick something else to receive.", "err"];
-  else if (d && !d.ok && !d.empty) tip = [d.message, "err"];
-  else if (d?.ok && r && !r.ok && !r.empty) tip = [r.message, "err"];
+  else if (d && !d.ok) tip = [d.text, "err"];
+  else if (d?.ok && r && !r.ok) tip = [r.text, "err"];
   else if (d?.ok && r?.ok) tip = ["Ready! Get the deposit address.", "ok"];
   else if (d?.ok) tip = [`Got it! Now a refund address on ${chainLabel(a!.blockchain)}, just in case.`, "ok"];
 
@@ -133,7 +134,7 @@ function Preview() {
               )}
               {b && (
                 <div className="box field"><label htmlFor="dest">Send it to ({chainLabel(b.blockchain)} address)</label>
-                  <div className="row"><input id="dest" autoComplete="off" spellCheck={false} placeholder={PLACEHOLDER[kindOf(b.blockchain)]} value={dest} onChange={(e) => setDest(e.target.value)} aria-invalid={d ? !d.ok && !d.empty : false} /></div></div>
+                  <div className="row"><input id="dest" autoComplete="off" spellCheck={false} placeholder={PLACEHOLDER[kindOf(b.blockchain)]} value={dest} onChange={(e) => setDest(e.target.value)} aria-invalid={d ? !d.ok : false} /></div></div>
               )}
               {a && d?.ok && (
                 <div className="box field"><label htmlFor="refund">Refund address ({chainLabel(a.blockchain)})</label>
