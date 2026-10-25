@@ -1,5 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { School, reducedMotion, type SchoolOptions } from "./school";
+import { THEME_EVENT } from "./themeMode";
 
 /**
  * Runs a School on a canvas. It animates only while the canvas is on screen and the tab is visible.
@@ -31,6 +32,8 @@ export function useSchool(
       s.draw();
     };
     addEventListener("resize", onResize);
+    // a still frame must be drawn again in the new colours
+    addEventListener(THEME_EVENT, onResize);
     s.draw();
     const loop = (now: number) => {
       if (!still && visible && !document.hidden) {
@@ -45,6 +48,7 @@ export function useSchool(
       cancelAnimationFrame(raf);
       io.disconnect();
       removeEventListener("resize", onResize);
+      removeEventListener(THEME_EVENT, onResize);
       school.current = null;
     };
     // the school is built once per canvas; options are read at mount
