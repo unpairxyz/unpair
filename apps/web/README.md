@@ -57,10 +57,13 @@ page points to it as the other choice.
   you choose. You pay the route's Zcash address from your own wallet.
 - **Fast or quiet.** Quiet rounds the amount and suggests a random wait between
   the hops.
-- **Where the ZEC lands.** Your own wallet, or the Unpair app. In both you hold
-  the key. A wallet that Unpair holds for you is listed and off: it would hide
-  your address from the route but make Unpair a custodian and the one party able
-  to link both ends.
+- **Who holds the coins in between.** Your own wallet, the Unpair app, or
+  Unpair's server. With the server, hop one lands in Unpair's shielded wallet
+  and the server pays hop two later to the asset and address you chose, so the
+  tab can close. The page says next to the choice that the server holds your
+  funds between the hops and sees both ends. The choice is only on when the
+  configured API runs the hosted service. A swap link `?swap=<id>` reopens a
+  hosted swap.
 - **Refunds in Send out.** The refund address can be a shielded-only unified
   address, so a failed swap comes back straight into the pool, or a transparent
   address that your wallet shields again.

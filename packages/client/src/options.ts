@@ -23,10 +23,10 @@ export interface WalletInfo {
 }
 
 /**
- * Landing choices in the order the page lists them. Only choices where the
- * user keeps the key are on. A hosted landing would make Unpair a custodian
- * and the one party that can see both ends, so it stays off until that is
- * decided and reviewed. It is listed so the trade-off is visible.
+ * Landing choices in the order the page lists them. The hosted choice makes
+ * Unpair a custodian between the hops and the one party able to see both
+ * ends; the text says so. It is only selectable when the API this page talks
+ * to runs the hosted service, which `note` explains when it does not.
  */
 export const WALLET_CHOICES: readonly WalletInfo[] = [
   {
@@ -47,11 +47,11 @@ export const WALLET_CHOICES: readonly WalletInfo[] = [
   },
   {
     id: "hosted",
-    title: "A wallet Unpair holds for you",
-    text: "Unpair would receive the payout into its own shielded wallet and pay your address later, at a time of your choosing. Your address would never appear on NEAR or in the bridge output. In return you would trust Unpair with your funds, its logs and its solvency, and Unpair would be the one party able to link both ends.",
+    title: "Unpair's server",
+    text: "The server receives the ZEC into its own shielded wallet and sends it on later from a fresh source. Your tab can close. Your receiving address never appears next to your deposit on any chain. In return the server holds your funds between the hops, sees both ends, and keeps the record for seven days. You trust Unpair's custody, logs and solvency for that time.",
     custody: "unpair",
-    available: false,
-    note: "Not offered. It would make Unpair a custodian, which needs a decision and a legal review first.",
+    available: true,
+    note: "Not offered by this server. Pick your own wallet.",
   },
 ];
 

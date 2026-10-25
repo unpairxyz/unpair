@@ -25,6 +25,38 @@ pub struct Config {
     pub signing_seed: Option<[u8; 32]>,
     pub screening: ScreeningConfig,
     pub geofence: GeofenceConfig,
+    /// Hosted swaps: the server holds a Zcash transit key between the hops.
+    /// Off unless a seed file is given.
+    pub hosted: Option<HostedConfig>,
+    /// Bearer token for the operator report. Required when hosted is on.
+    pub operator_token: Option<String>,
+}
+
+/// Default per-swap cap, 1 ZEC in zatoshis.
+pub const HOSTED_DEFAULT_MAX_ZAT: u64 = 100_000_000;
+
+#[derive(Clone, Debug)]
+pub struct HostedConfig {
+    /// File with the BIP 39 phrase of the transit wallet.
+    pub seed_file: PathBuf,
+    /// Directory for the wallet database and the swap store.
+    pub data_dir: PathBuf,
+    pub network: WalletNetwork,
+    pub lightwalletd: Vec<String>,
+    /// Block height the wallet starts scanning from. Default: the tip at first start.
+    pub birthday_height: Option<u32>,
+    /// How often the wallet syncs and the swap driver runs.
+    pub interval: Duration,
+    /// Largest ZEC amount one swap may carry, in zatoshis.
+    pub max_zat: u64,
+    /// Most swaps in flight at once.
+    pub max_open: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalletNetwork {
+    Main,
+    Test,
 }
 
 #[derive(Clone, Debug)]
@@ -161,6 +193,66 @@ impl Config {
             require_header: bool_var("UNPAIR_GEOFENCE_REQUIRE_HEADER", false)?,
         };
 
+        let hosted = match var("UNPAIR_WALLET_SEED_FILE") {
+            None => None,
+            Some(seed_file) => Some(HostedConfig {
+                seed_file: PathBuf::from(seed_file),
+                data_dir: PathBuf::from(
+                    var("UNPAIR_WALLET_DIR").unwrap_or_else(|| "wallet".into()),
+                ),
+                network: match var("UNPAIR_ZCASH_NETWORK")
+                    .unwrap_or_else(|| "main".into())
+                    .as_str()
+                {
+                    "main" => WalletNetwork::Main,
+                    "test" => WalletNetwork::Test,
+                    other => {
+                        return Err(ConfigError::Invalid(
+                            "UNPAIR_ZCASH_NETWORK".into(),
+                            format!("expected main or test, got {other}"),
+                        ))
+                    }
+                },
+                lightwalletd: list("UNPAIR_LIGHTWALLETD", ""),
+                birthday_height: match var("UNPAIR_WALLET_BIRTHDAY") {
+                    None => None,
+                    Some(h) => Some(h.parse().map_err(|e| {
+                        ConfigError::Invalid("UNPAIR_WALLET_BIRTHDAY".into(), format!("{e}"))
+                    })?),
+                },
+                interval: Duration::from_secs(
+                    var("UNPAIR_WALLET_INTERVAL_SECS")
+                        .unwrap_or_else(|| "60".into())
+                        .parse()
+                        .map_err(|e| {
+                            ConfigError::Invalid(
+                                "UNPAIR_WALLET_INTERVAL_SECS".into(),
+                                format!("{e}"),
+                            )
+                        })?,
+                ),
+                max_zat: var("UNPAIR_HOSTED_MAX_ZAT")
+                    .unwrap_or_else(|| HOSTED_DEFAULT_MAX_ZAT.to_string())
+                    .parse()
+                    .map_err(|e| {
+                        ConfigError::Invalid("UNPAIR_HOSTED_MAX_ZAT".into(), format!("{e}"))
+                    })?,
+                max_open: var("UNPAIR_HOSTED_MAX_OPEN")
+                    .unwrap_or_else(|| "20".into())
+                    .parse()
+                    .map_err(|e| {
+                        ConfigError::Invalid("UNPAIR_HOSTED_MAX_OPEN".into(), format!("{e}"))
+                    })?,
+            }),
+        };
+        let operator_token = var("UNPAIR_OPERATOR_TOKEN");
+        if hosted.is_some() && operator_token.as_deref().is_none_or(|t| t.len() < 24) {
+            return Err(ConfigError::Invalid(
+                "UNPAIR_OPERATOR_TOKEN".into(),
+                "required when the wallet is on; at least 24 characters".into(),
+            ));
+        }
+
         Ok(Config {
             bind,
             allowed_origins: list(
@@ -175,6 +267,8 @@ impl Config {
             signing_seed,
             screening,
             geofence,
+            hosted,
+            operator_token,
         })
     }
 }

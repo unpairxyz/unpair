@@ -12,12 +12,14 @@ WorkingDirectory=/var/lib/unpair
 Restart=on-failure
 RestartSec=5
 CPUWeight=50
-MemoryMax=256M
+# 256M is enough without hosted swaps. Proving for hosted swaps needs 768M.
+MemoryMax=768M
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadOnlyPaths=/etc/unpair
+ReadWritePaths=/var/lib/unpair
 
 [Install]
 WantedBy=multi-user.target

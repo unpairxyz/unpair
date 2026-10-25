@@ -1,6 +1,7 @@
 /**
  * Swap model for the page. Pure functions and types; no React here.
  */
+import type { HostedState } from "./api.js";
 import {
   describeReleaseWindow,
   formatUnits,
@@ -124,4 +125,42 @@ export const CHAIN_NAMES: Record<string, string> = {
 
 export function chainName(id: string): string {
   return CHAIN_NAMES[id] ?? id.toUpperCase();
+}
+
+/** The four panels of a hosted swap, in order. */
+export const HOSTED_STAGES = ["Deposit seen", "Into the pool", "In the pool", "Out"] as const;
+
+/** Which panel a hosted state lights, 0 to 3, or -1 before the deposit. */
+export function hostedStage(state: HostedState): number {
+  switch (state) {
+    case "waiting_for_deposit":
+      return -1;
+    case "routing_in":
+      return 1;
+    case "in_pool":
+      return 2;
+    case "routing_out":
+      return 3;
+    case "done":
+      return 4;
+    case "refunded":
+    case "expired":
+    case "failed":
+      return -1;
+  }
+}
+
+export const HOSTED_COPY: Record<HostedState, { label: string; text: string }> = {
+  waiting_for_deposit: { label: "Waiting for deposit", text: "Send exactly the amount shown to the deposit address before the deadline. You can close this tab and come back with the link." },
+  routing_in: { label: "Into the pool", text: "Deposit seen. The route is turning it into ZEC and paying Unpair's transit wallet, straight into the shielded pool." },
+  in_pool: { label: "In the pool", text: "Your ZEC sits in Unpair's transit wallet as one shielded note. At the release time the server sends it on from a fresh source." },
+  routing_out: { label: "Out", text: "The second hop is paid from the pool. The route is delivering your asset." },
+  done: { label: "Delivered", text: "Your asset arrived at your address. On chain, nothing links it to your deposit. Unpair's server saw both ends; it keeps this record for seven days, then deletes it." },
+  refunded: { label: "Refunded", text: "The first hop did not complete. The route returned your deposit to the refund address." },
+  expired: { label: "Expired", text: "No deposit arrived before the deadline. A deposit sent after it is returned by the route to the refund address." },
+  failed: { label: "Needs attention", text: "Something stopped the swap. The server kept the swap id and the details; contact the operator with the id." },
+};
+
+export function isHostedFinal(state: HostedState): boolean {
+  return state === "done" || state === "refunded" || state === "expired" || state === "failed";
 }

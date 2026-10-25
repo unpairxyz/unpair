@@ -5,8 +5,7 @@ A small Rust service. It does the parts a static page cannot:
 - **Screening before execution.** Geofence from the edge country header and an address screen on the refund and destination addresses. A refused flow gets no quote, so no fee is ever taken from it.
 - **Signed quotes.** The server forwards a quote to 1Click with its own fee settings and signs the result with an Ed25519 key. The web app pins the public key, so a clone site cannot show a forged Unpair quote.
 - **Status lookups** for a deposit address.
-
-It holds no key that can receive funds. Landing addresses are derived and shielded on the user's device by the Unpair app, never here.
+- **Hosted swaps**, when the operator gives it a seed. The server then holds a Zcash transit key, receives hop one into its own shielded wallet and pays hop two later from the pool. Off by default. See `docs/threat-model.md` for what that means for users and `docs/self-host.md` for what it means for the operator.
 
 ## Endpoints
 
@@ -18,6 +17,13 @@ It holds no key that can receive funds. Landing addresses are derived and shield
 | POST | `/v1/screen` | none | `{address, chain}` to `{allowed, reason}`. |
 | POST | `/v1/quote` | none | A 1Click quote request body. Screens, forwards with the server's fee, returns `{quote, fee_recipient, fee_bps, signature, public_key_hex}`. |
 | GET | `/v1/status/{depositAddress}` | none | 1Click status, with optional `?depositMemo=`. |
+| POST | `/v1/hosted/swaps` | none | Start a hosted swap: `{mode, originAsset, amount, destinationAsset, recipient, refundTo, slippageTolerance?}`. Screens, takes a fresh shielded landing, quotes hop one to it, returns `{swap, quote}`. |
+| GET | `/v1/hosted/swaps/{id}` | the id | Progress of one hosted swap. The id is 16 random bytes; whoever has it sees the swap. |
+| GET | `/v1/hosted/report` | operator token | Wallet balance, proving and upgrade state, swap counts. |
+
+### Hosted swap states
+
+`waiting_for_deposit`, `routing_in`, `in_pool`, `routing_out`, then `done`, `refunded`, `expired` or `failed`. A `failed` swap holds its ZEC in the transit wallet until the operator acts. Finished swaps are deleted after seven days.
 
 ## Run
 

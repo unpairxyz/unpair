@@ -23,8 +23,10 @@ The cap in code is 1% per hop.
 | Deposit on the source chain | You | Source chain gas |
 | Shield into the pool | You, from the landed amount | 0.00015 ZEC for one landing output, 0.00005 ZEC more per extra output (ZIP 317) |
 | Send out of the pool, hop two | You, from the shielded balance | 0.00015 ZEC for one note spent, 0.00005 ZEC more per extra note (ZIP 317) |
+| Hop two on the server path | You, from the ZEC that landed | The server keeps 0.0002 ZEC back for the fee. What the real fee leaves over stays as change in the transit wallet. |
 
-Unpair takes nothing on network fee steps.
+Unpair takes nothing on network fee steps. On the server path the routing fee
+is taken on hop one only; hop two carries no routing fee.
 
 ## Flagged flows
 

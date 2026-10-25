@@ -18,6 +18,8 @@ import {
   ApiError,
   DEFAULT_ADVANCED,
   DEFAULT_ROUTE,
+  HOSTED_COPY,
+  HOSTED_STAGES,
   MODE_COPY,
   ROUTES,
   SEND_OUT_COPY,
@@ -33,12 +35,16 @@ import {
   describePlan,
   describeRefundCheck,
   groupByChain,
+  hostedStage,
+  isHostedFinal,
   planAmount,
   routeInfo,
   stateOf,
   verifySignedQuote,
   type AddressCheck,
   type AdvancedOptions,
+  type HostedInfo,
+  type HostedSwap,
   type Landing,
   type Mode,
   type WalletChoice,
@@ -69,20 +75,40 @@ interface Options {
 type Step =
   | { kind: "form" }
   | { kind: "quoted"; quote: QuoteResponse; token: TokenInfo; verified: boolean | null; landing?: Landing }
-  | { kind: "tracking"; quote: QuoteResponse; token: TokenInfo; landing?: Landing };
+  | { kind: "tracking"; quote: QuoteResponse; token: TokenInfo; landing?: Landing }
+  | { kind: "hosted"; swap: HostedSwap; token: TokenInfo | null; verified: boolean | null };
+
+/** The hosted service of the configured API, once known. */
+type HostedAvailability = { known: false } | { known: true; info: HostedInfo | null };
 
 export function App() {
   const [direction, setDirection] = useState<Direction>("in");
   const [options, setOptions] = useState<Options>({ mode: "fast", route: DEFAULT_ROUTE, wallet: "own", advanced: DEFAULT_ADVANCED });
   const [tokens, setTokens] = useState<TokenInfo[] | null>(null);
   const [tokensError, setTokensError] = useState<string | null>(null);
+  const [hosted, setHosted] = useState<HostedAvailability>(api ? { known: false } : { known: true, info: null });
+  const [resume, setResume] = useState<string | null>(() => {
+    const id = new URLSearchParams(window.location.search).get("swap");
+    return id && /^[0-9a-f]{32}$/.test(id) ? id : null;
+  });
 
   useEffect(() => {
     client
       .getTokens()
       .then((t) => setTokens(t))
       .catch((e: unknown) => setTokensError(e instanceof Error ? e.message : String(e)));
+    if (api) {
+      api
+        .config()
+        .then((c) => setHosted({ known: true, info: c.hosted ?? null }))
+        .catch(() => setHosted({ known: true, info: null }));
+    }
   }, []);
+
+  function endResume() {
+    setResume(null);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
 
   return (
     <main>
@@ -104,14 +130,17 @@ export function App() {
 
       {tokensError && <p className="hint bad">Could not load the asset list: {tokensError}</p>}
 
-      {direction === "in" ? (
-        <SwapIn tokens={tokens} options={options} onOptions={setOptions} />
+      {resume && api ? (
+        <HostedTracking id={resume} tokens={tokens} verified={null} onDone={endResume} />
+      ) : direction === "in" ? (
+        <SwapIn tokens={tokens} options={options} onOptions={setOptions} hosted={hosted} />
       ) : (
         <SendOut tokens={tokens} options={options} onOptions={setOptions} />
       )}
 
       <footer>
-        Open source, MIT. Unpair holds no funds and no keys. {api ? "Addresses are screened and quotes are signed by the Unpair API." : "Quotes are requested from your browser."} Each route operator sees its own leg.{" "}
+        Open source, MIT. With your own wallet, Unpair holds no funds and no keys. With Unpair's server, it holds your ZEC between the two hops and sees both ends.{" "}
+        {api ? "Addresses are screened and quotes are signed by the Unpair API." : "Quotes are requested from your browser."} Each route operator sees its own leg.{" "}
         <a href="https://github.com/unpairxyz/unpair" rel="noreferrer">Source and threat model</a>.
       </footer>
     </main>
@@ -149,20 +178,24 @@ function RoutePicker({ options, onOptions }: { options: Options; onOptions: (o: 
   );
 }
 
-function WalletPicker({ options, onOptions }: { options: Options; onOptions: (o: Options) => void }) {
+function WalletPicker({ options, onOptions, hosted }: { options: Options; onOptions: (o: Options) => void; hosted: HostedAvailability }) {
+  const hostedOn = hosted.known && hosted.info !== null;
   return (
     <fieldset className="choices">
-      <legend>Where the ZEC lands</legend>
-      {WALLET_CHOICES.map((w) => (
-        <label key={w.id} className={`choice${w.available ? "" : " off"}`}>
-          <input type="radio" name="wallet" value={w.id} checked={options.wallet === w.id} disabled={!w.available} onChange={() => onOptions({ ...options, wallet: w.id })} />
-          <span>
-            <strong>{w.title}</strong>{" "}
-            <em>{w.custody === "you" ? "you hold the key" : "Unpair holds the key"}</em>
-            <small>{w.text}{w.available ? "" : ` ${w.note}`}</small>
-          </span>
-        </label>
-      ))}
+      <legend>Who holds the coins in between</legend>
+      {WALLET_CHOICES.map((w) => {
+        const on = w.available && (w.id !== "hosted" || hostedOn);
+        return (
+          <label key={w.id} className={`choice${on ? "" : " off"}${w.custody === "unpair" ? " custody" : ""}`}>
+            <input type="radio" name="wallet" value={w.id} checked={options.wallet === w.id} disabled={!on} onChange={() => onOptions({ ...options, wallet: w.id })} />
+            <span>
+              <strong>{w.title}</strong>{" "}
+              <em>{w.custody === "you" ? "you hold the key" : "the server holds the key"}</em>
+              <small>{w.text}{on ? "" : ` ${w.id === "hosted" && !hosted.known ? "Checking this server." : w.note}`}</small>
+            </span>
+          </label>
+        );
+      })}
     </fieldset>
   );
 }
@@ -206,6 +239,10 @@ interface FlowProps {
   onOptions: (o: Options) => void;
 }
 
+function zecFromZat(zat: number): string {
+  return formatUnits(BigInt(zat), ZEC_DECIMALS);
+}
+
 async function screenAndQuote(request: QuoteInput): Promise<{ quote: QuoteResponse; verified: boolean | null } | { refused: string }> {
   if (!api) return { quote: await client.quote(request), verified: null };
   for (const [address, chain] of [
@@ -227,13 +264,16 @@ function chainOf(assetId: string): string {
   return m?.[1] ?? m?.[2] ?? "near";
 }
 
-function SwapIn({ tokens, options, onOptions }: FlowProps) {
+function SwapIn({ tokens, options, onOptions, hosted }: FlowProps & { hosted: HostedAvailability }) {
   const [chain, setChain] = useState<string>("eth");
   const [assetId, setAssetId] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [refundTo, setRefundTo] = useState<string>("");
   const [destination, setDestination] = useState<string>("");
   const [destCheck, setDestCheck] = useState<AddressCheck | null>(null);
+  const [outChain, setOutChain] = useState<string>("base");
+  const [outAssetId, setOutAssetId] = useState<string>("");
+  const [outAddress, setOutAddress] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>({ kind: "form" });
@@ -243,9 +283,15 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
   const token = chainTokens.find((t) => t.assetId === assetId) ?? chainTokens[0] ?? null;
   const zec = tokens?.find((t) => t.blockchain === "zec" && t.symbol === "ZEC") ?? null;
 
+  const outTokens = byChain.get(outChain) ?? [];
+  const outToken = outTokens.find((t) => t.assetId === outAssetId) ?? outTokens[0] ?? null;
+
   useEffect(() => {
     if (token && token.assetId !== assetId) setAssetId(token.assetId);
   }, [token, assetId]);
+  useEffect(() => {
+    if (outToken && outToken.assetId !== outAssetId) setOutAssetId(outToken.assetId);
+  }, [outToken, outAssetId]);
 
   useEffect(() => {
     let alive = true;
@@ -269,12 +315,38 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
   const destOk = destVerdict?.ok ?? false;
   const landing = destVerdict?.landing;
   const ownWallet = options.wallet === "own";
-  const canQuote = Boolean(token && zec && plan && !planError && ownWallet && destOk && refundTo.trim() !== "" && !busy);
+  const hostedWallet = options.wallet === "hosted";
+  const hostedInfo = hosted.known ? hosted.info : null;
+  const hostedReady = Boolean(hostedWallet && api && hostedInfo && outToken && outToken.assetId !== token?.assetId && outAddress.trim() !== "");
+  const canQuote = Boolean(token && zec && plan && !planError && refundTo.trim() !== "" && !busy && ((ownWallet && destOk) || hostedReady));
 
   async function getQuote() {
     if (!token || !zec || !plan) return;
     setBusy(true);
     setFormError(null);
+    if (hostedWallet) {
+      try {
+        if (!api || !outToken) throw new Error("The hosted service needs the Unpair API.");
+        const r = await api.createHostedSwap({
+          mode: options.mode,
+          originAsset: token.assetId,
+          amount: plan.send.toString(),
+          destinationAsset: outToken.assetId,
+          recipient: outAddress.trim(),
+          refundTo: refundTo.trim(),
+          slippageTolerance: options.advanced.slippageBps,
+        });
+        const verified = config.apiPubkey ? await verifySignedQuote(r.quote, config.apiPubkey) : null;
+        if (verified === false) throw new Error("The quote did not verify against the pinned API key. Do not pay it.");
+        window.history.replaceState(null, "", `${window.location.pathname}?swap=${r.swap.id}`);
+        setStep({ kind: "hosted", swap: r.swap, token, verified });
+      } catch (e) {
+        setFormError(describeError(e));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const request: QuoteInput = {
         swapType: "EXACT_INPUT",
@@ -302,8 +374,12 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
   function reset() {
     setStep({ kind: "form" });
     setFormError(null);
+    window.history.replaceState(null, "", window.location.pathname);
   }
 
+  if (step.kind === "hosted") {
+    return <HostedTracking id={step.swap.id} first={step.swap} tokens={tokens} verified={step.verified} onDone={reset} />;
+  }
   if (step.kind === "quoted") {
     const q = step.quote.quote;
     return (
@@ -358,16 +434,48 @@ function SwapIn({ tokens, options, onOptions }: FlowProps) {
       <input id="refund" placeholder="Where a failed swap is returned" value={refundTo} onChange={(e) => setRefundTo(e.target.value)} autoComplete="off" spellCheck={false} />
       <p className="hint">Use an address you control on the source chain. Never a shielded address.</p>
 
-      <WalletPicker options={options} onOptions={onOptions} />
-      {ownWallet ? (
+      <WalletPicker options={options} onOptions={onOptions} hosted={hosted} />
+      {ownWallet && (
         <>
           <label htmlFor="dest">Your Zcash address</label>
           <input id="dest" placeholder="u1... or t1..." value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
           {destVerdict && <p className={`hint ${destOk ? (landing === "shielded" ? "ok" : "") : "bad"}`}>{destVerdict.text}</p>}
           {!destCheck && <p className="hint">Best: a fresh shielded-only unified address, paid straight into the pool. Also fine: a fresh transparent address that your wallet shields. Use each address once.</p>}
         </>
-      ) : (
+      )}
+      {options.wallet === "unpair_app" && (
         <p className="hint warn">Open the Unpair app and use its Swap in tab. It makes the landing address and shields it for you. <a href="https://github.com/unpairxyz/unpair/tree/main/apps/desktop" rel="noreferrer">Get the app</a>.</p>
+      )}
+      {hostedWallet && (
+        <>
+          <div className="row">
+            <div>
+              <label htmlFor="out-chain-in">Receive on</label>
+              <select id="out-chain-in" value={outChain} onChange={(e) => setOutChain(e.target.value)} disabled={!tokens}>
+                {[...byChain.keys()].map((c) => (
+                  <option key={c} value={c}>{chainName(c)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="out-asset-in">Asset</label>
+              <select id="out-asset-in" value={outToken?.assetId ?? ""} onChange={(e) => setOutAssetId(e.target.value)} disabled={!outToken}>
+                {outTokens.map((t) => (
+                  <option key={t.assetId} value={t.assetId}>{t.symbol}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {outToken && token && outToken.assetId === token.assetId && <p className="hint bad">Pick a different asset to receive.</p>}
+          {outToken?.blockchain === "zec" && <p className="hint bad">To receive ZEC, use your own wallet. The server only sends on to another asset.</p>}
+          <label htmlFor="out-address-in">Your address on {chainName(outChain)}</label>
+          <input id="out-address-in" placeholder="Where the asset arrives, from a fresh source" value={outAddress} onChange={(e) => setOutAddress(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
+          {hostedInfo && (
+            <p className="hint">
+              Each hosted swap carries at most {zecFromZat(hostedInfo.max_zat)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots are in use. The server keeps {zecFromZat(hostedInfo.hop2_fee_reserve_zat)} ZEC back for the second hop's network fee.
+            </p>
+          )}
+        </>
       )}
 
       <RoutePicker options={options} onOptions={onOptions} />
@@ -538,6 +646,118 @@ function describeError(e: unknown): string {
     return `The route could not quote this swap: ${msg}`;
   }
   return e instanceof Error ? e.message : String(e);
+}
+
+/** A hosted swap, from deposit to delivery. Polls the API; the tab may close and come back by link. */
+function HostedTracking({ id, first, tokens, verified, onDone }: { id: string; first?: HostedSwap; tokens: TokenInfo[] | null; verified: boolean | null; onDone: () => void }) {
+  const [swap, setSwap] = useState<HostedSwap | null>(first ?? null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState<"address" | "link" | null>(null);
+  const timer = useRef<number | null>(null);
+  const final = swap ? isHostedFinal(swap.state) : false;
+
+  useEffect(() => {
+    if (!api || final) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const s = await api.hostedSwap(id);
+        if (alive) {
+          setSwap(s);
+          setError(null);
+        }
+      } catch (e) {
+        if (alive) setError(e instanceof Error ? e.message : String(e));
+      }
+      if (alive) timer.current = window.setTimeout(tick, 7_000);
+    };
+    void tick();
+    return () => {
+      alive = false;
+      if (timer.current) window.clearTimeout(timer.current);
+    };
+  }, [id, final]);
+
+  async function copyText(what: "address" | "link", text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(what);
+      window.setTimeout(() => setCopied(null), 1500);
+    } catch {
+      /* clipboard blocked; the text is selectable */
+    }
+  }
+
+  if (!swap) {
+    return (
+      <section className="card">
+        <span className="state">Loading</span>
+        <p>{error ? `Could not load this swap: ${error}` : "Loading the swap."}</p>
+        <p className="hint"><button type="button" className="link" onClick={onDone}>Start over</button></p>
+      </section>
+    );
+  }
+  const copy = HOSTED_COPY[swap.state];
+  const stage = hostedStage(swap.state);
+  const inToken = tokens?.find((t) => t.assetId === swap.origin_asset) ?? null;
+  const outToken = tokens?.find((t) => t.assetId === swap.destination_asset) ?? null;
+  const amountIn = inToken ? `${formatUnits(BigInt(swap.amount_in), inToken.decimals)} ${inToken.symbol} on ${chainName(inToken.blockchain)}` : `${swap.amount_in} base units`;
+  const link = `${window.location.origin}${window.location.pathname}?swap=${swap.id}`;
+  const deadline = new Date(swap.deposit_deadline_unix * 1000);
+  const release = swap.release_at_unix ? new Date(swap.release_at_unix * 1000) : null;
+  return (
+    <section className="card">
+      <span className={`state ${swap.state}`}>{copy.label}</span>
+      <p>{copy.text}</p>
+      <ol className="stages" role="status" aria-label="Progress">
+        {HOSTED_STAGES.map((name, i) => (
+          <li key={name} className={i < stage ? "done" : i === stage ? "now" : ""}>{name}</li>
+        ))}
+      </ol>
+      {swap.state === "waiting_for_deposit" && (
+        <>
+          <label>Send exactly</label>
+          <p className="mono">{amountIn}</p>
+          <label>To this deposit address</label>
+          <div className="address">
+            <code className="mono">{swap.deposit_address}</code>
+            <button type="button" className="link" onClick={() => copyText("address", swap.deposit_address)}>{copied === "address" ? "Copied" : "Copy"}</button>
+          </div>
+          {swap.deposit_memo && (
+            <>
+              <label>With this memo</label>
+              <p className="mono">{swap.deposit_memo}</p>
+            </>
+          )}
+          <p className="hint">Pay by {deadline.toLocaleString()}. Send from any wallet you control.</p>
+          {verified === true && <p className="hint ok">Signed by the Unpair API. Addresses were screened.</p>}
+          {verified === null && <p className="hint warn">This page could not verify the quote against a pinned API key.</p>}
+        </>
+      )}
+      <label>Your link to this swap</label>
+      <div className="address">
+        <code className="mono">{link}</code>
+        <button type="button" className="link" onClick={() => copyText("link", link)}>{copied === "link" ? "Copied" : "Copy"}</button>
+      </div>
+      <p className="hint">Anyone with the link sees the swap's progress, the deposit address and your receiving address. Keep it to yourself.</p>
+      <dl>
+        <DlRow k="Receive" v={`${outToken ? outToken.symbol : swap.destination_asset} on ${chainName(outToken?.blockchain ?? "")} at ${swap.destination_address.slice(0, 10)}...`} />
+        {swap.zec_received !== null && <DlRow k="In the pool" v={`${zecFromZat(swap.zec_received)} ZEC`} />}
+        {release && swap.state === "in_pool" && <DlRow k="Sends on" v={release.getTime() <= Date.now() ? "now, waiting for the wallet" : `at about ${release.toLocaleString()}`} />}
+        {swap.hop2_txid && <DlRow k="Zcash transaction" v={`${swap.hop2_txid.slice(0, 12)}...`} />}
+        {swap.delivered_amount && <DlRow k="Delivered" v={`${swap.delivered_amount} ${outToken?.symbol ?? ""}`} />}
+        {swap.delivered_tx && <DlRow k="Transaction" v={`${swap.delivered_tx.slice(0, 12)}...`} />}
+        <DlRow k="Swap id" v={swap.id} />
+      </dl>
+      {swap.note && <p className={`hint ${swap.state === "done" ? "ok" : "warn"}`}>{swap.note}</p>}
+      {error && <p className="hint warn">Status check failed, retrying: {error}</p>}
+      {final ? (
+        <button type="button" className="primary" onClick={onDone}>Start another</button>
+      ) : (
+        <p className="hint"><button type="button" className="link" onClick={onDone}>Leave this page</button> The swap continues on the server. Come back with the link.</p>
+      )}
+    </section>
+  );
 }
 
 function QuoteView({ quote, verified, rows, copy = STATE_COPY.quote, note, acceptLabel = "Show deposit address", onBack, onAccept }: {
