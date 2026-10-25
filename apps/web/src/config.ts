@@ -16,6 +16,10 @@ export interface AppConfig {
   apiKey: string | undefined;
   fee: FeeConfig | null;
   officialOrigin: string;
+  /** unpair-api base URL. When set, screening and signed quotes go through it. */
+  apiUrl: string | undefined;
+  /** Pinned Ed25519 public key of that API, hex. Quotes that do not verify are refused. */
+  apiPubkey: string | undefined;
 }
 
 export function loadConfig(): AppConfig {
@@ -25,5 +29,7 @@ export function loadConfig(): AppConfig {
     apiKey: (env.VITE_ONECLICK_JWT as string | undefined)?.trim() || undefined,
     fee: bps === 0 ? null : { recipient, feeBps: bps },
     officialOrigin: (env.VITE_OFFICIAL_ORIGIN as string | undefined)?.trim() || "https://unpair.xyz",
+    apiUrl: (env.VITE_API_URL as string | undefined)?.trim() || undefined,
+    apiPubkey: (env.VITE_API_PUBKEY as string | undefined)?.trim().toLowerCase() || undefined,
   };
 }

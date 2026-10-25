@@ -184,3 +184,20 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod vector {
+    use super::*;
+    use serde_json::json;
+
+    /// Fixed vector shared with the web app's tests. Run with --nocapture to print.
+    #[test]
+    fn print_cross_language_vector() {
+        let s = QuoteSigner::from_seed([7u8; 32]);
+        let quote = json!({"correlationId":"c1","timestamp":"2026-10-25T12:00:00.000Z","signature":"sig","quoteRequest":{"dry":true,"swapType":"EXACT_INPUT","slippageTolerance":100,"amount":"1000000000","appFees":[{"recipient":"unpair.near","fee":25},{"recipient":"x","fee":25}]},"quote":{"amountIn":"1000000000","amountOut":"83847628","timeEstimate":160,"amountInUsd":"999.545000000000"}});
+        let msg = String::from_utf8(QuoteSigner::message("unpair.near", 50, &quote)).unwrap();
+        println!("VECTOR_PUBKEY={}", s.public_key_hex());
+        println!("VECTOR_SIG={}", s.sign("unpair.near", 50, &quote));
+        println!("VECTOR_MSG={msg}");
+    }
+}

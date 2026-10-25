@@ -30,6 +30,8 @@ Environment values are public and end up in the bundle:
 | `VITE_FEE_RECIPIENT` | `unpair.near` | Who receives the routing fee. Self-hosters can set their own. |
 | `VITE_FEE_BPS` | `50` | Routing fee in basis points. The SDK caps it at 100. |
 | `VITE_OFFICIAL_ORIGIN` | `https://unpair.xyz` | Shown in the notice on other origins. |
+| `VITE_API_URL` | empty | unpair-api base URL. When set, addresses are screened there and quotes come back signed. |
+| `VITE_API_PUBKEY` | empty | The API's Ed25519 public key, hex, from `GET /v1/pubkey`. A quote that does not verify is refused. |
 
 ## What the page does
 
@@ -44,6 +46,18 @@ The Zcash address must be transparent, because the route pays transparent only.
 Use a fresh address from a wallet that shields automatically, such as Zodl or the
 Unpair self-host wallet in `packages/zcash`. The page refuses unified and Sapling
 addresses with a reason.
+
+## With the API
+
+Set `VITE_API_URL` and `VITE_API_PUBKEY` to route through unpair-api. The page then:
+
+1. screens the refund and Zcash addresses, and stops with the reason if one is refused,
+2. asks the API for a quote, which the API forwards to 1Click with its own fee and signs,
+3. verifies the signature against the pinned key before showing the quote,
+4. polls status through the API.
+
+Without the API the page calls 1Click directly and no screening happens, which is
+fine for local development and for self-hosters who accept that.
 
 ## Privacy notes
 
