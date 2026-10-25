@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkZcashAddress, describeCheck } from "../src/lib/zcashAddress";
+import { checkZcashAddress, describeCheck } from "../src/zcashAddress.js";
 
 describe("checkZcashAddress", () => {
   it("accepts a mainnet t1 address", async () => {

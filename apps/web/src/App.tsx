@@ -9,19 +9,23 @@ import {
   type TokenInfo,
 } from "@unpair/sdk";
 import { loadConfig } from "./config";
-import { ApiClient, ApiError, verifySignedQuote } from "./lib/api";
-import { checkZcashAddress, describeCheck, type AddressCheck } from "./lib/zcashAddress";
 import {
+  ApiClient,
+  ApiError,
   MODE_COPY,
   STATE_COPY,
   chainName,
+  checkZcashAddress,
   depositDeadline,
+  describeCheck,
   describePlan,
   groupByChain,
   planAmount,
   stateOf,
+  verifySignedQuote,
+  type AddressCheck,
   type Mode,
-} from "./lib/swap";
+} from "@unpair/client";
 
 const config = loadConfig();
 const client = new OneClickClient({

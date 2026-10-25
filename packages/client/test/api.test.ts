@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiClient, ApiError, canonicalJson, signedMessage, verifySignedQuote, type SignedQuote } from "../src/lib/api";
+import { ApiClient, ApiError, canonicalJson, signedMessage, verifySignedQuote, type SignedQuote } from "../src/api.js";
 
 // Printed by `cargo test -p unpair-api print_cross_language_vector -- --nocapture`.
 const VECTOR_PUBKEY = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";

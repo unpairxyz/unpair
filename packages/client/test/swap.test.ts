@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TokenInfo } from "@unpair/sdk";
-import { MODE_COPY, STATE_COPY, describePlan, groupByChain, planAmount } from "../src/lib/swap";
+import { MODE_COPY, STATE_COPY, describePlan, groupByChain, planAmount } from "../src/swap.js";
 
 const eth: TokenInfo = { assetId: "nep141:eth.omft.near", decimals: 18, blockchain: "eth", symbol: "ETH", price: 3000, priceUpdatedAt: "" };
 const zec: TokenInfo = { assetId: "nep141:zec.omft.near", decimals: 8, blockchain: "zec", symbol: "ZEC", price: 50, priceUpdatedAt: "" };
