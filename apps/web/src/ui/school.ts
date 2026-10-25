@@ -6,6 +6,15 @@
 
 export const SPOT = "#FF2E4D";
 
+/** Ink and paper of the current theme, read from the CSS tokens. A canvas cannot use var(), so it reads them here. */
+export const pal = { ink: "#000", paper: "#fff", trail: "rgba(0,0,0,.16)" };
+export function readPalette(): void {
+  const cs = getComputedStyle(document.documentElement);
+  pal.ink = cs.getPropertyValue("--ink").trim() || "#000";
+  pal.paper = cs.getPropertyValue("--paper").trim() || "#fff";
+  pal.trail = cs.getPropertyValue("--trail").trim() || "rgba(0,0,0,.16)";
+}
+
 export function rng(seed: string | number): () => number {
   const s = String(seed);
   let h = 1779033703 ^ s.length;
@@ -32,7 +41,8 @@ export interface SchoolOptions {
   sep?: number;
   len?: number;
   lw?: number;
-  ink?: string;
+  /** Stroke colour; "paper" draws in the page colour, on an ink panel. Default: ink. */
+  ink?: string | undefined;
   trail?: boolean;
 }
 
@@ -94,6 +104,7 @@ export class School {
   constructor(cv: HTMLCanvasElement, o: SchoolOptions = {}) {
     const ctx = cv.getContext("2d");
     if (!ctx) throw new Error("no 2d canvas");
+    readPalette();
     this.cv = cv;
     this.ctx = ctx;
     this.o = o;
@@ -352,14 +363,14 @@ export class School {
 
   draw(): void {
     const { ctx, x, y, vx, vy, n, HL } = this;
-    const ink = this.o.ink ?? "#000";
+    const ink = this.o.ink === "paper" ? pal.paper : (this.o.ink ?? pal.ink);
     const L = this.o.len ?? 8;
     ctx.clearRect(0, 0, this.W, this.H);
     ctx.lineCap = "round";
     const you = this.you.on ? 0 : -1;
     const ex = this.exit && !this.exit.done ? this.exit.i : -1;
     if (this.o.trail !== false) {
-      ctx.strokeStyle = "rgba(0,0,0,.16)";
+      ctx.strokeStyle = pal.trail;
       ctx.lineWidth = 1;
       ctx.beginPath();
       const a = (this.hi + 1) % HL;
@@ -389,7 +400,7 @@ export class School {
       const f = this.you.fade;
       const sc = 1.3 - 0.3 * f;
       // the red fish: black outline, red fill that fades to plain ink as it blends
-      ctx.strokeStyle = "#000";
+      ctx.strokeStyle = pal.ink;
       ctx.lineWidth = 5 - 3.2 * f;
       ctx.beginPath();
       this.dash(0, sc);
@@ -403,7 +414,7 @@ export class School {
       }
       if (f < 0.6) {
         ctx.globalAlpha = 1 - f / 0.6;
-        ctx.strokeStyle = "#000";
+        ctx.strokeStyle = pal.ink;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(x[0]!, y[0]!, 13 + Math.sin(this.frame * 0.1) * 1.5, 0, 6.283);
@@ -413,12 +424,12 @@ export class School {
     }
     if (ex > -1) {
       // the payout: a fresh fish, drawn hollow, with motion lines behind it
-      ctx.strokeStyle = "#000";
+      ctx.strokeStyle = pal.ink;
       ctx.lineWidth = 6;
       ctx.beginPath();
       this.dash(ex, 1.6);
       ctx.stroke();
-      ctx.strokeStyle = "#fff";
+      ctx.strokeStyle = pal.paper;
       ctx.lineWidth = 3;
       ctx.beginPath();
       this.dash(ex, 1.45);
@@ -426,7 +437,7 @@ export class School {
       const s = Math.hypot(vx[ex]!, vy[ex]!) + 1e-6;
       const ux = vx[ex]! / s;
       const uy = vy[ex]! / s;
-      ctx.strokeStyle = "#000";
+      ctx.strokeStyle = pal.ink;
       ctx.lineWidth = 1.4;
       ctx.beginPath();
       for (let k = -1; k <= 1; k++) {
@@ -444,12 +455,12 @@ export class School {
       ctx.font = `${sz}px Bangers, Impact, sans-serif`;
       ctx.lineJoin = "round";
       ctx.lineWidth = sz * 0.22;
-      ctx.strokeStyle = "#fff";
+      ctx.strokeStyle = pal.paper;
       ctx.strokeText(s.t, 0, 0);
       ctx.lineWidth = sz * 0.08;
-      ctx.strokeStyle = "#000";
+      ctx.strokeStyle = pal.ink;
       ctx.strokeText(s.t, 0, 0);
-      ctx.fillStyle = s.red ? SPOT : "#fff";
+      ctx.fillStyle = s.red ? SPOT : pal.paper;
       ctx.fillText(s.t, 0, 0);
       ctx.restore();
     }
@@ -477,7 +488,7 @@ export class School {
 
 /** Draw the quote mark: a small white school, its shape fixed by the seed, with one red dot. */
 export function drawMark(cv: HTMLCanvasElement, seed: string): void {
-  const m = new School(cv, { n: 130, seed, trail: false, perc: 14, sep: 5, ink: "#fff", lw: 1.4, len: 5, spread: 0.5 });
+  const m = new School(cv, { n: 130, seed, trail: false, perc: 14, sep: 5, ink: "paper", lw: 1.4, len: 5, spread: 0.5 });
   const R = rng(seed + "g");
   const steps = 40 + ((R() * 90) | 0);
   for (let i = 0; i < steps; i++) m.step();

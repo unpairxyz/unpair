@@ -28,9 +28,10 @@ export function ChainIcon({ chain }: { chain: string }) {
   );
 }
 
-export function TokenButton({ token, onClick, label }: { token: TokenInfo | null; onClick: () => void; label: string }) {
+export function TokenButton({ token, onClick, label, fixed = false }: { token: TokenInfo | null; onClick?: () => void; label: string; fixed?: boolean }) {
+  // a token that cannot change shows as a plain label: no frame, no caret, not clickable
   return (
-    <button type="button" className="tok" onClick={onClick} aria-label={token ? `${label}: ${token.symbol} on ${chainLabel(token.blockchain)}. Change` : label}>
+    <button type="button" className={fixed ? "tok fixed" : "tok"} disabled={fixed} onClick={onClick} aria-label={token ? `${label}: ${token.symbol} on ${chainLabel(token.blockchain)}${fixed ? "" : ". Change"}` : label}>
       {token ? (
         <>
           <TokenIcon token={token} />

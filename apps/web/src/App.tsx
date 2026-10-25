@@ -26,24 +26,28 @@ import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWal
 import type { Landing } from "./wallet/types";
 import {
   Address,
+  AddressRow,
+  AddressRows,
+  CardHead,
   DoneBurst,
   Footer,
   GoButton,
   Hero,
+  Hint,
   InfoTiles,
+  Keeper,
+  Leg,
+  Legs,
   Mascot,
   Masthead,
-  PLACEHOLDER,
-  PoolDivider,
   QuoteMark,
   Sprites,
   StatusStrip,
   Story,
-  Toggle,
+  Summary,
   TokenButton,
   TokenPicker,
   WidgetPanel,
-  kindOf,
   type HeroStage,
 } from "./ui";
 import { chainLabel } from "./ui/tokens";
@@ -138,32 +142,26 @@ function useZcashCheck(address: string): AddressCheck | null {
   return check;
 }
 
-function Details({ a, b, amount, out, minOut, slippage, onSlippage, time }: { a: TokenInfo; b: TokenInfo; amount: number; out: number; minOut: number; slippage: number; onSlippage: (bps: number) => void; time: string }) {
+function Details({ a, b, amount, out, minOut, eta, time }: { a: TokenInfo; b: TokenInfo; amount: number; out: number; minOut: number; eta: string; time: string }) {
   const fee = client.previewFee(a, b, "EXACT_INPUT");
   return (
-    <details className="det">
-      <summary>
-        <span>1 {a.symbol} ≈ {amount > 0 ? fmt(out / amount) : "?"} {b.symbol}</span>
-        <span className="code">DETAILS</span>
-      </summary>
-      <dl>
-        <dt>Route</dt>
-        <dd>{a.symbol} · {chainLabel(a.blockchain)} → ZEC pool → {b.symbol} · {chainLabel(b.blockchain)}</dd>
-        <dt>Min. received</dt>
-        <dd>{fmt(minOut)} {b.symbol} at {slippage / 100}% slippage</dd>
-        <dt>Fee</dt>
-        <dd>{fee.text}</dd>
-        <dt>Time</dt>
-        <dd>{time}</dd>
-      </dl>
-      <div className="slip" role="group" aria-label="Slippage">
-        {SLIPPAGE_BPS.map((bps) => (
-          <button key={bps} type="button" aria-pressed={slippage === bps} onClick={() => onSlippage(bps)}>{bps / 100}%</button>
-        ))}
-      </div>
-    </details>
+    <Summary
+      rate={`1 ${a.symbol} ≈ ${amount > 0 ? fmt(out / amount) : "?"} ${b.symbol}`}
+      meta={`fee ${feePercent} · ${eta}`}
+      rows={[
+        ["Route", `${a.symbol} · ${chainLabel(a.blockchain)} → ZEC pool → ${b.symbol} · ${chainLabel(b.blockchain)}`],
+        ["Min. received", `${fmt(minOut)} ${b.symbol}`],
+        ["Fee", fee.text],
+        ["Time", time],
+      ]}
+    />
   );
 }
+
+const MODES: { value: Mode; title: string; hint: string }[] = [
+  { value: "fast", title: "Fast", hint: "Exact amount. About 5 minutes." },
+  { value: "quiet", title: "Quiet", hint: "Rounds the amount and waits a random time, up to 12 h. Harder to match." },
+];
 
 function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: TokenInfo[]; hosted: HostedAvailability; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSendOut: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
@@ -227,16 +225,14 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   else if (!refundCheck?.ok) label = "ADD A REFUND ADDRESS";
   const ready = label === "GET DEPOSIT ADDRESS" && !busy;
 
-  let tip: [string, "" | "ok" | "err"] = [custody === "own" ? "Pick what you send. It lands as ZEC in your own shielded wallet. You send it on from there." : custody === "browser" ? "Pick what you send and what you want back. This tab makes a Zcash wallet for the swap and swims it through the pool itself." : "Pick what you send and what you want back. The server swims it through the pool for you.", ""];
-  if (error) tip = [error, "err"];
-  else if (serverOff) tip = [hosted.known ? "This server does not offer the hosted path. Pick your own wallet." : "Checking whether this server offers the hosted path.", "err"];
-  else if (browserOff) tip = ["This page was built without a Zcash wallet server, so the browser wallet is off. Pick your own wallet.", "err"];
-  else if (same) tip = ["Same token on the same chain? Pick something else to receive.", "err"];
-  else if (planError) tip = [planError, "err"];
-  else if (destCheck && !destCheck.ok) tip = [destCheck.text, "err"];
-  else if (destCheck?.ok && refundCheck && !refundCheck.ok) tip = [refundCheck.text, "err"];
-  else if (destCheck?.ok && refundCheck?.ok) tip = ["Ready. Get the deposit address.", "ok"];
-  else if (destCheck?.ok && a) tip = [`Got it. Now a refund address on ${chainLabel(a.blockchain)}, in case the route fails.`, "ok"];
+  let hint: string | null = null;
+  if (error) hint = error;
+  else if (serverOff) hint = hosted.known ? "This server does not offer the hosted path. Pick your own wallet." : "Checking whether this server offers the hosted path.";
+  else if (browserOff) hint = "This page was built without a Zcash wallet server, so the browser wallet is off. Pick your own wallet.";
+  else if (same) hint = "Same token on the same chain. Pick something else to get.";
+  else if (planError) hint = planError;
+  else if (destCheck && !destCheck.ok) hint = destCheck.text;
+  else if (refundCheck && !refundCheck.ok) hint = refundCheck.text;
 
   async function go() {
     if (!a || !b || !plan) return;
@@ -359,82 +355,67 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       }}
       noValidate
     >
-      <div className="wtitle">
-        <b>UNPAIR A SWAP</b>
-        <button type="button" className="tag" onClick={onSendOut}>Send out</button>
-      </div>
-      <div className="row2">
-        <Toggle small label="Mode" value={mode} onChange={setMode} options={[{ value: "fast", title: "Fast", hint: "~5 min" }, { value: "quiet", title: "Quiet", hint: "rounded, random delay" }]} />
-        <Toggle small label="Who holds the coins in between" value={custody} onChange={(c) => { setCustody(c); setDest(""); setError(null); }} options={[{ value: "own", title: "My wallet", hint: "you hold the key" }, { value: "browser", title: "This browser", hint: "the tab holds it" }, { value: "server", title: "Unpair server", hint: "we hold it" }]} />
-      </div>
-      <p className={custody === "server" ? "custody-note warn" : "custody-note"}>
-        {custody === "server"
-          ? "Unpair's server holds your coins between the two swaps and can see both ends. You can close the tab and come back with the link."
+      <CardHead tab="in" onTab={(t) => t === "out" && onSendOut()} mode={mode} modes={MODES} onMode={setMode} slippage={slippage} slippages={SLIPPAGE_BPS} onSlippage={setSlippage} />
+      <Keeper
+        label="Lands in"
+        value={custody}
+        onChange={(c) => { setCustody(c); setDest(""); setError(null); }}
+        options={[{ value: "own", title: "My wallet" }, { value: "browser", title: "This tab" }, { value: "server", title: "Unpair server" }]}
+        warn={custody === "server"}
+        note={custody === "server"
+          ? "Our server holds the coins between the swaps and sees both ends. You can close the tab and come back with the link."
           : custody === "browser"
-            ? "A Zcash wallet runs inside this tab for this one swap and pays the second hop itself. Unpair never holds your coins in this mode. Keep the tab open; a recovery file brings the wallet back if it closes."
-            : "Your own Zcash wallet receives the ZEC into the shielded pool. Unpair never holds your coins in this mode. You send it on from your wallet when you like."}
-      </p>
-
-      <div className="box pay">
-        <div className="kv">
-          <label htmlFor="amount">You send</label>
-          <span className="meta" style={{ margin: 0 }}>{a && sendNum > 0 ? `$${fmt(sendNum * a.price, 2)}` : ""}</span>
-        </div>
-        <div className="amt">
-          <input id="amount" inputMode="decimal" autoComplete="off" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <TokenButton token={a} label="Token you send" onClick={() => setPicking("in")} />
-        </div>
-        <div className="meta"><span>{plan && a && plan.heldBack > 0n ? `Quiet mode rounds down to ${formatUnits(plan.send, a.decimals)}. The rest stays in your wallet.` : ""}</span></div>
-      </div>
-
-      <PoolDivider {...(custody !== "own" ? { onFlip: () => { setInId(outId); setOutId(inId); setDest(""); setRefund(""); } } : {})} />
-
-      <div className="box pay">
-        <div className="kv">
-          <span className="lbl">You receive</span>
-          <span className="meta" style={{ margin: 0 }}>{out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}</span>
-        </div>
-        <div className="amt">
-          <output aria-live="polite">{out > 0 ? fmt(out) : "0"}</output>
-          {custody === "own" ? <TokenButton token={zec} label="You receive ZEC" onClick={() => {}} /> : <TokenButton token={bPicked} label="Token you receive" onClick={() => setPicking("out")} />}
-        </div>
-        <div className="meta"><span>{custody === "own" ? "into your shielded wallet" : custody === "browser" ? "paid out by this tab's wallet" : "from a fresh source"}</span></div>
-      </div>
-
+            ? "A Zcash wallet runs in this tab for this one swap and pays out itself. Unpair never holds your coins. Keep the tab open, or save the recovery file."
+            : "ZEC lands in your own shielded wallet. Unpair never holds your coins in this mode. Move it on later with Send out."}
+      />
+      <Legs
+        {...(custody !== "own" ? { onFlip: () => { setInId(outId); setOutId(inId); setDest(""); setRefund(""); } } : {})}
+        send={
+          <Leg
+            label="You send"
+            htmlFor="amount"
+            usd={a && sendNum > 0 ? `$${fmt(sendNum * a.price, 2)}` : ""}
+            amount={<input id="amount" inputMode="decimal" autoComplete="off" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />}
+            token={<TokenButton token={a} label="Token you send" onClick={() => setPicking("in")} />}
+            note={plan && a && plan.heldBack > 0n ? `Quiet sends ${formatUnits(plan.send, a.decimals)} ${a.symbol}. The rest stays with you.` : null}
+          />
+        }
+        get={
+          <Leg
+            second
+            label="You get"
+            usd={out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}
+            amount={<output aria-live="polite" className={out > 0 ? undefined : "zero"}>{out > 0 ? fmt(out) : "0"}</output>}
+            token={custody === "own" ? <TokenButton fixed token={zec} label="You get ZEC" /> : <TokenButton token={bPicked} label="Token you receive" onClick={() => setPicking("out")} />}
+            note={custody === "own" ? "into your shielded wallet" : null}
+          />
+        }
+      />
+      <AddressRows>
+        {b && <AddressRow id="dest" label="To" value={dest} onChange={setDest} placeholder={custody === "own" ? "Your shielded u1… address" : `Your ${chainLabel(b.blockchain)} address`} invalid={destCheck ? !destCheck.ok : false} />}
+        {a && <AddressRow id="refund" label="Refund" value={refund} onChange={setRefund} placeholder={`Your ${chainLabel(a.blockchain)} address`} invalid={refundCheck ? !refundCheck.ok : false} />}
+      </AddressRows>
+      <Hint>{hint}</Hint>
       {a && b && plan && !same && (
-        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} slippage={slippage} onSlippage={setSlippage} time={mode === "quiet" ? "about 5 min in, then a random wait up to 12 h" : "about 5 min"} />
-      )}
-
-      {b && (
-        <div className="box field">
-          <label htmlFor="dest">{custody === "own" ? "Your Zcash address (u1 shielded-only is best)" : `Send it to (${chainLabel(b.blockchain)} address)`}</label>
-          <div className="row">
-            <input id="dest" autoComplete="off" spellCheck={false} placeholder={custody === "own" ? "u1… or t1…" : PLACEHOLDER[kindOf(b.blockchain)]} value={dest} onChange={(e) => setDest(e.target.value)} aria-invalid={destCheck ? !destCheck.ok : false} />
-          </div>
-        </div>
-      )}
-      {a && (
-        <div className="box field">
-          <label htmlFor="refund">Refund address ({chainLabel(a.blockchain)}), in case the route fails</label>
-          <div className="row">
-            <input id="refund" autoComplete="off" spellCheck={false} placeholder={PLACEHOLDER[kindOf(a.blockchain)]} value={refund} onChange={(e) => setRefund(e.target.value)} aria-invalid={refundCheck ? !refundCheck.ok : false} />
-          </div>
-        </div>
+        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} eta={mode === "quiet" ? "random wait" : "~5 min"} time={mode === "quiet" ? "about 5 min in, then a random wait up to 12 h" : "about 5 min"} />
       )}
       {custody === "server" && hostedInfo && (
         <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>
       )}
       {custody === "browser" && !browserOff && (
-        <p className="fine">
-          The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.{" "}
-          <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
-          <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
-        </p>
+        <p className="fine">The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
       )}
-
-      <Mascot tone={tip[1]}>{tip[0]}</Mascot>
       <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
-      <p className="fine">{api ? "Addresses are screened and the quote is signed by the Unpair API." : "The quote comes straight from the route, from your browser."}</p>
+      <p className="fine">
+        {api ? "Addresses are screened and the quote is signed by the Unpair API." : "The quote comes straight from the route, from your browser."}
+        {config.lwdGrpcWebUrl && (
+          <>
+            {" "}
+            <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
+            <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
+          </>
+        )}
+      </p>
 
       <TokenPicker
         open={picking !== null}
@@ -460,8 +441,6 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
 /** Hop two from the user's own wallet: ZEC leaves the pool and arrives as another asset. */
 function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSwapIn: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
-  const [payer, setPayer] = useState<"own" | "browser">("own");
-  const fileRef = useRef<HTMLInputElement>(null);
   const [outId, setOutId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [dest, setDest] = useState("");
@@ -473,13 +452,10 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   const [step, setStep] = useState<
     | { kind: "form" }
     | { kind: "quoted"; quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null; token: TokenInfo }
-    | { kind: "browser"; wallet: BrowserWallet; landing: Landing; outToken: TokenInfo; dest: string }
-    | { kind: "browser-resume"; wallet: BrowserWallet; recovery: Recovery }
   >({ kind: "form" });
 
   const zec = useMemo(() => tokens.find((t) => t.blockchain === "zec" && t.symbol === "ZEC") ?? null, [tokens]);
   const b = useMemo(() => tokens.find((t) => t.assetId === outId) ?? null, [tokens, outId]);
-  const browserOff = payer === "browser" && !config.lwdGrpcWebUrl;
   useEffect(() => {
     if (tokens.length && !outId) setOutId(tokens.find((t) => t.symbol === "USDC" && t.blockchain === "base")?.assetId ?? tokens[0]?.assetId ?? null);
   }, [tokens, outId]);
@@ -497,44 +473,26 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   const refundZ = useZcashCheck(refund);
   const refundVerdict = refundZ ? describeRefundCheck(refundZ) : null;
 
-  const goLabel = payer === "browser" ? "SHOW THE TAB'S ADDRESS" : "SHOW THE ROUTE'S ADDRESS";
+  const goLabel = "SHOW THE ROUTE'S ADDRESS";
   let label = goLabel;
   if (!zec || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
-  else if (browserOff) label = "BROWSER WALLET IS OFF HERE";
   else if (b.blockchain === "zec") label = "PICK A DIFFERENT TOKEN";
   else if (!plan) label = "ENTER AN AMOUNT";
   else if (!destCheck?.ok) label = `ADD YOUR ${chainLabel(b.blockchain).toUpperCase()} ADDRESS`;
-  else if (payer === "own" && !refundVerdict?.ok) label = "ADD A ZCASH REFUND ADDRESS";
+  else if (!refundVerdict?.ok) label = "ADD A ZCASH REFUND ADDRESS";
   const ready = label === goLabel && !busy;
 
-  let tip: [string, "" | "ok" | "err"] = [payer === "browser" ? "Pay this tab's wallet from your own ZEC wallet. The tab proves and pays the route, and your asset arrives at an address of your choice." : "Send ZEC from your own shielded wallet and receive another asset at an address of your choice. On chain the two ends have no link.", ""];
-  if (error) tip = [error, "err"];
-  else if (browserOff) tip = ["This page was built without a Zcash wallet server, so the browser wallet is off. Pay from your own wallet.", "err"];
-  else if (planError) tip = [planError, "err"];
-  else if (payer === "browser" && destCheck?.ok) tip = ["Ready. The tab makes its wallet and shows you where to send the ZEC.", "ok"];
-  else if (destCheck && !destCheck.ok) tip = [destCheck.text, "err"];
-  else if (destCheck?.ok && refundVerdict && !refundVerdict.ok) tip = [refundVerdict.text, "err"];
-  else if (destCheck?.ok && refundVerdict?.ok) tip = [refundVerdict.landing === "shielded" ? "Ready. A failed hop comes back straight into your shielded pool." : "Ready. A failed hop comes back to your transparent address; your wallet shields it again.", "ok"];
-  else if (destCheck?.ok) tip = ["Now a fresh address from your Zcash wallet, for a refund if the route fails. A shielded-only u1 keeps the refund in the pool.", "ok"];
+  let hint: string | null = null;
+  if (error) hint = error;
+  else if (planError) hint = planError;
+  else if (destCheck && !destCheck.ok) hint = destCheck.text;
+  else if (refundVerdict && !refundVerdict.ok) hint = refundVerdict.text;
 
   async function go() {
     if (!zec || !b || !plan) return;
     setBusy(true);
     setError(null);
     try {
-      if (payer === "browser") {
-        if (!config.lwdGrpcWebUrl) throw new Error("The browser wallet needs a Zcash wallet server.");
-        const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl);
-        try {
-          const landing = await wallet.nextLanding();
-          setStep({ kind: "browser", wallet, landing, outToken: b, dest: dest.trim() });
-          onStage("deposit");
-        } catch (e) {
-          wallet.close();
-          throw e;
-        }
-        return;
-      }
       const request: QuoteInput = {
         swapType: "EXACT_INPUT",
         slippageTolerance: slippage,
@@ -562,37 +520,13 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   }
 
   function reset() {
-    if (step.kind === "browser" || step.kind === "browser-resume") step.wallet.close();
     setStep({ kind: "form" });
     setError(null);
-  }
-
-  async function resumeFromFile(file: File) {
-    if (!config.lwdGrpcWebUrl) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const recovery = parseRecovery(await file.text(), config.zcashNetwork);
-      const wallet = await BrowserWallet.recover(recovery, config.lwdGrpcWebUrl);
-      setStep({ kind: "browser-resume", wallet, recovery });
-      onStage("pool");
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setBusy(false);
-    }
   }
 
   if (step.kind === "quoted") {
     return <OwnTracking quote={step.quote} signed={step.signed} verified={step.verified} token={step.token} direction="out" shielded={false} quiet={mode === "quiet"} onStage={onStage} onDone={reset} onSendOut={() => {}} />;
   }
-  if (step.kind === "browser") {
-    return <BrowserSwap wallet={step.wallet} landing={step.landing} outToken={step.outToken} dest={step.dest} slippage={slippage} mode={mode} tokens={tokens} onStage={onStage} onDone={reset} />;
-  }
-  if (step.kind === "browser-resume") {
-    return <BrowserSwap wallet={step.wallet} recovery={step.recovery} tokens={tokens} onStage={onStage} onDone={reset} />;
-  }
-
   return (
     <form
       onSubmit={(e) => {
@@ -601,70 +535,38 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
       }}
       noValidate
     >
-      <div className="wtitle">
-        <b>SEND OUT</b>
-        <button type="button" className="tag" onClick={onSwapIn}>Swap in</button>
-      </div>
-      <div className="row2">
-        <Toggle small label="Mode" value={mode} onChange={setMode} options={[{ value: "fast", title: "Fast", hint: "exact amount" }, { value: "quiet", title: "Quiet", hint: "rounded amount" }]} />
-        <Toggle small label="Who pays the route" value={payer} onChange={(p) => { setPayer(p); setError(null); }} options={[{ value: "own", title: "My wallet", hint: "you pay the route" }, { value: "browser", title: "This browser", hint: "the tab pays it" }]} />
-      </div>
-      <p className="custody-note">
-        {payer === "browser"
-          ? "You pay this tab's shielded address from your own wallet. The tab makes a wallet for this one swap, proves the spend and pays the route. Unpair never holds your coins in this mode. Keep the tab open; a recovery file brings the wallet back if it closes."
-          : "This is the second hop. Pay the route from your shielded balance, never from a transparent one, and leave time since the first hop."}
-      </p>
-      <div className="box pay">
-        <div className="kv">
-          <label htmlFor="out-amount">{payer === "browser" ? "You send to the tab, about" : "You send from your shielded wallet"}</label>
-          <span className="meta" style={{ margin: 0 }}>{zec && sendNum > 0 ? `$${fmt(sendNum * zec.price, 2)}` : ""}</span>
-        </div>
-        <div className="amt">
-          <input id="out-amount" inputMode="decimal" autoComplete="off" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <TokenButton token={zec} label="You send ZEC" onClick={() => {}} />
-        </div>
-        <div className="meta"><span>{plan && plan.heldBack > 0n ? `Quiet mode rounds down to ${formatUnits(plan.send, ZEC_DECIMALS)} ZEC.` : "Do not send the same amount you received."}</span></div>
-      </div>
-      <PoolDivider />
-      <div className="box pay">
-        <div className="kv">
-          <span className="lbl">You receive</span>
-          <span className="meta" style={{ margin: 0 }}>{out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}</span>
-        </div>
-        <div className="amt">
-          <output aria-live="polite">{out > 0 ? fmt(out) : "0"}</output>
-          <TokenButton token={b} label="Token you receive" onClick={() => setPicking(true)} />
-        </div>
-        <div className="meta"><span>at an address with no history</span></div>
-      </div>
+      <CardHead tab="out" onTab={(t) => t === "in" && onSwapIn()} mode={mode} modes={MODES} onMode={setMode} slippage={slippage} slippages={SLIPPAGE_BPS} onSlippage={setSlippage} />
+      <p className="knote">The second hop, from your own Zcash wallet. Pay from your shielded balance, never a transparent one, and wait a while after the first hop.</p>
+      <Legs
+        send={
+          <Leg
+            label="You send"
+            htmlFor="out-amount"
+            usd={zec && sendNum > 0 ? `$${fmt(sendNum * zec.price, 2)}` : ""}
+            amount={<input id="out-amount" inputMode="decimal" autoComplete="off" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />}
+            token={<TokenButton fixed token={zec} label="You send ZEC" />}
+            note={plan && plan.heldBack > 0n ? `Quiet sends ${formatUnits(plan.send, ZEC_DECIMALS)} ZEC.` : "Not the same amount you received."}
+          />
+        }
+        get={
+          <Leg
+            second
+            label="You get"
+            usd={out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}
+            amount={<output aria-live="polite" className={out > 0 ? undefined : "zero"}>{out > 0 ? fmt(out) : "0"}</output>}
+            token={<TokenButton token={b} label="Token you receive" onClick={() => setPicking(true)} />}
+          />
+        }
+      />
+      <AddressRows>
+        {b && <AddressRow id="out-dest" label="To" value={dest} onChange={setDest} placeholder={`Your ${chainLabel(b.blockchain)} address`} invalid={destCheck ? !destCheck.ok : false} />}
+        <AddressRow id="out-refund" label="Refund" value={refund} onChange={setRefund} placeholder="A fresh address of your Zcash wallet" invalid={refundVerdict ? !refundVerdict.ok : false} />
+      </AddressRows>
+      <Hint>{hint}</Hint>
       {zec && b && plan && b.blockchain !== "zec" && (
-        <Details a={zec} b={b} amount={sendNum} out={out} minOut={out * (1 - slippage / 10_000)} slippage={slippage} onSlippage={setSlippage} time="about 8 min after your payment confirms" />
+        <Details a={zec} b={b} amount={sendNum} out={out} minOut={out * (1 - slippage / 10_000)} eta="~8 min" time="about 8 min after your payment confirms" />
       )}
-      {b && (
-        <div className="box field">
-          <label htmlFor="out-dest">Send it to ({chainLabel(b.blockchain)} address)</label>
-          <div className="row">
-            <input id="out-dest" autoComplete="off" spellCheck={false} placeholder={PLACEHOLDER[kindOf(b.blockchain)]} value={dest} onChange={(e) => setDest(e.target.value)} aria-invalid={destCheck ? !destCheck.ok : false} />
-          </div>
-        </div>
-      )}
-      {payer === "own" && (
-        <div className="box field">
-          <label htmlFor="out-refund">Refund address, a fresh address of your Zcash wallet</label>
-          <div className="row">
-            <input id="out-refund" autoComplete="off" spellCheck={false} placeholder="u1… or t1…" value={refund} onChange={(e) => setRefund(e.target.value)} aria-invalid={refundVerdict ? !refundVerdict.ok : false} />
-          </div>
-        </div>
-      )}
-      {payer === "browser" && !browserOff && (
-        <p className="fine">
-          A failed hop two comes back to the tab's wallet, which shields it again. The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.{" "}
-          <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
-          <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
-        </p>
-      )}
-      <Mascot tone={tip[1]}>{tip[0]}</Mascot>
-      <GoButton type="submit" disabled={!ready}>{busy ? (payer === "browser" ? "MAKING THE WALLET" : "GETTING A QUOTE") : label}</GoButton>
+      <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
       <TokenPicker open={picking} title="YOU RECEIVE" tokens={tokens.filter((t) => t.blockchain !== "zec")} value={outId} onClose={() => setPicking(false)} onPick={(t) => { if (b?.blockchain !== t.blockchain) setDest(""); setOutId(t.assetId); setPicking(false); }} />
     </form>
   );
