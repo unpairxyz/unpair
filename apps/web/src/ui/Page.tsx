@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { THEME_EVENT, currentTheme, setTheme, type ThemeName } from "./themeMode";
 
 /** Panel dialog driven by `open`. */
 export function Dialog({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
@@ -20,17 +21,58 @@ export function Dialog({ open, title, onClose, children }: { open: boolean; titl
 
 type Info = "how" | "verify" | "faq" | null;
 
+/** Sun or moon in a round frame. It shows the theme you switch to. */
+function ThemeSwitch() {
+  const [theme, setLocal] = useState<ThemeName>(currentTheme);
+  useEffect(() => {
+    const sync = () => setLocal(currentTheme());
+    addEventListener(THEME_EVENT, sync);
+    return () => removeEventListener(THEME_EVENT, sync);
+  }, []);
+  const next: ThemeName = theme === "dark" ? "light" : "dark";
+  return (
+    <button className="theme" type="button" aria-label={`Switch to the ${next} theme`} title={`${next[0]!.toUpperCase()}${next.slice(1)} theme`} onClick={() => setTheme(next)}>
+      {next === "light" ? <Sun /> : <Moon />}
+    </button>
+  );
+}
+
+function Sun() {
+  // eight sharp rays like a manga sound effect burst
+  const rays = Array.from({ length: 8 }, (_, i) => {
+    const a = (i * Math.PI) / 4;
+    const p = (r: number, d: number) => `${(16 + Math.cos(a + d) * r).toFixed(1)} ${(16 + Math.sin(a + d) * r).toFixed(1)}`;
+    return `M${p(9, -0.32)} L${p(15, 0)} L${p(9, 0.32)} Z`;
+  }).join(" ");
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d={rays} fill="currentColor" />
+      <circle cx="16" cy="16" r="6.5" fill="var(--spot)" stroke="currentColor" strokeWidth="2.5" />
+    </svg>
+  );
+}
+
+function Moon() {
+  return (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M20.5 4.5 A11.5 11.5 0 1 0 28 21 A9 9 0 0 1 20.5 4.5 Z" fill="currentColor" />
+      <path d="M24 7 l1 2.6 2.6 1 -2.6 1 -1 2.6 -1 -2.6 -2.6 -1 2.6 -1 z" fill="var(--spot)" />
+    </svg>
+  );
+}
+
 export function Masthead() {
   const [open, setOpen] = useState<Info>(null);
   const close = () => setOpen(null);
   return (
     <>
       <div className="mast">
-        <a className="logo" href="./" aria-label="Unpair"><b>UNPAIR</b><span className="vol">VOL.1 · OPEN SOURCE · YOU PICK WHO HOLDS THE KEY</span></a>
+        <a className="logo" href="./" aria-label="Unpair"><img className="mark" src={`${import.meta.env.BASE_URL}logo.svg`} alt="" width="52" height="52" /><b>UNPAIR</b><span className="vol">VOL.1 · OPEN SOURCE · YOU PICK WHO HOLDS THE KEY</span></a>
         <div className="tags">
           <button className="tag" type="button" onClick={() => setOpen("how")}>How it works</button>
           <button className="tag" type="button" onClick={() => setOpen("verify")}>Verify</button>
           <button className="tag" type="button" onClick={() => setOpen("faq")}>FAQ</button>
+          <ThemeSwitch />
         </div>
       </div>
       <Dialog open={open === "how"} title="HOW IT WORKS" onClose={close}>
