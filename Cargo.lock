@@ -8809,6 +8809,7 @@ dependencies = [
  "zcash_protocol",
  "zcash_transparent",
  "zip32",
+ "zip321",
 ]
 
 [[package]]

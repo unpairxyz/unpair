@@ -1,7 +1,7 @@
 [package]
 name = "unpair-zcash"
 version = "0.1.0"
-description = "Zcash leg of Unpair: per-swap landing addresses, lightwalletd client with failover, one-step auto-shield to Orchard, ZIP-317 fees."
+description = "Zcash leg of Unpair: per-swap landing addresses, lightwalletd client with failover, one-step auto-shield to Ironwood, Ironwood-only payouts, ZIP-317 fees."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -13,6 +13,7 @@ zcash_primitives = { version = "0.31", features = ["transparent-inputs"] }
 zcash_keys = { version = "0.17", features = ["orchard", "sapling", "transparent-inputs", "unstable"] }
 zcash_protocol = "0.11"
 zcash_address = "0.14"
+zip321 = "0.10"
 zcash_proofs = { version = "0.31", features = ["download-params", "local-prover", "multicore"] }
 zcash_transparent = "0.11"
 orchard = "0.16"

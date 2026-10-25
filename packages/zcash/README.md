@@ -8,6 +8,7 @@ It is the core of the Unpair app and gives it:
 - lightwalletd access with failover across public servers and a chain tip cross-check,
 - a small wallet database that syncs only what shielding needs,
 - one-step auto-shield: every output on a landing address goes to Ironwood, the live Orchard-protocol pool since NU6.3 (the old Orchard pool accepts no new value),
+- hop two: pay a `t1` or `t3` address from Ironwood notes only, change back to Ironwood, with a guard that refuses to build just before a network upgrade,
 - ZIP-317 fee estimates in plain words,
 - Tor transport through arti behind the `tor` feature.
 
@@ -38,10 +39,17 @@ let t_address = landing.transparent_string(&network);
 let txids = wallet.sync_and_shield(&pool, &[landing.transparent]).await?;
 ```
 
+```rust
+// 4. Hop two: pay a route's deposit address from the shielded pool.
+let payout = wallet.sync_and_pay(&pool, "t1...", Zatoshis::const_from_u64(5_000_000)).await?;
+```
+
 ## Fees
 
-The shield step pays the ZIP-317 network fee and nothing else. One landing output
-costs 0.00015 ZEC. `fees::describe_shield_fee(n)` gives the sentence for the UI.
+Both steps pay the ZIP-317 network fee and nothing else. One landing output
+costs 0.00015 ZEC to shield; one note costs 0.00015 ZEC to send out.
+`fees::describe_shield_fee(n)` and `fees::describe_payout_fee(n)` give the
+sentences for the UI.
 
 ## Confirmations and thresholds
 

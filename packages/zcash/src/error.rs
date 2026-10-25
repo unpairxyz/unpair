@@ -24,6 +24,14 @@ pub enum Error {
     Shield(String),
     #[error("proving parameters: {0}")]
     Params(String),
+    #[error("payout address: {0}")]
+    PayoutAddress(String),
+    #[error("not enough spendable ZEC in Ironwood for this payout")]
+    InsufficientFunds,
+    #[error("sending: {0}")]
+    Send(String),
+    #[error("a network upgrade activates within {0} blocks; sending resumes after it")]
+    UpgradeWindow(u32),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 }

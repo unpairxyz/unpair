@@ -43,6 +43,16 @@ pub fn shield_fee(utxos: usize) -> Zatoshis {
     zip317_fee(utxos, 0, 1)
 }
 
+/// Fee for a payout that spends `notes` Ironwood notes to one transparent
+/// output with one Ironwood change note. Ironwood actions carry one spend and
+/// one output each, so actions = max(spends, outputs), at least two.
+pub fn payout_fee(notes: usize) -> Zatoshis {
+    let ironwood_actions = notes.max(1).max(MIN_ORCHARD_ACTIONS);
+    let logical = 1 + ironwood_actions;
+    let actions = logical.max(GRACE_ACTIONS) as u64;
+    Zatoshis::from_u64(MARGINAL_FEE.into_u64() * actions).expect("fee fits")
+}
+
 /// Zatoshis as a decimal ZEC string with trailing zeros removed.
 pub fn format_zec(amount: Zatoshis) -> String {
     let units = amount.into_u64();
@@ -63,9 +73,25 @@ pub fn describe_shield_fee(utxos: usize) -> String {
     )
 }
 
+/// Plain words for the UI. No em dashes.
+pub fn describe_payout_fee(notes: usize) -> String {
+    format!(
+        "Network fee to send from the shielded pool: {}. Unpair takes nothing on this step.",
+        format_zec(payout_fee(notes))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn payout_fee_matches_zip317() {
+        assert_eq!(payout_fee(1).into_u64(), 15_000);
+        assert_eq!(payout_fee(2).into_u64(), 15_000);
+        assert_eq!(payout_fee(3).into_u64(), 20_000);
+        assert!(describe_payout_fee(1).contains("0.00015 ZEC"));
+    }
 
     #[test]
     fn one_utxo_shield_costs_15000_zats() {

@@ -22,7 +22,7 @@ The cap in code is 1% per hop.
 |---|---|---|
 | Deposit on the source chain | You | Source chain gas |
 | Shield into the pool | You, from the landed amount | 0.00015 ZEC for one landing output, 0.00005 ZEC more per extra output (ZIP 317) |
-| Release in quiet mode | You, from the shielded balance | 0.0001 ZEC |
+| Send out of the pool, hop two | You, from the shielded balance | 0.00015 ZEC for one note spent, 0.00005 ZEC more per extra note (ZIP 317) |
 
 Unpair takes nothing on network fee steps.
 
