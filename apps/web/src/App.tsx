@@ -165,7 +165,8 @@ const MODES: { value: Mode; title: string; hint: string }[] = [
 
 function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: TokenInfo[]; hosted: HostedAvailability; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSendOut: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
-  const [custody, setCustody] = useState<Custody>("own");
+  // one-time wallet first; a page built without a Zcash wallet server starts on your own wallet
+  const [custody, setCustody] = useState<Custody>(config.lwdGrpcWebUrl ? "browser" : "own");
   const [inId, setInId] = useState<string | null>(null);
   const [outId, setOutId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
@@ -218,7 +219,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   let label = "GET DEPOSIT ADDRESS";
   if (!a || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
   else if (serverOff) label = "SERVER MODE IS OFF HERE";
-  else if (browserOff) label = "BROWSER WALLET IS OFF HERE";
+  else if (browserOff) label = "ONE-TIME WALLET IS OFF HERE";
   else if (same || (b.blockchain === "zec" && custody !== "own")) label = "PICK A DIFFERENT TOKEN";
   else if (!plan) label = "ENTER AN AMOUNT";
   else if (!destCheck?.ok) label = custody === "own" ? "ADD YOUR ZCASH ADDRESS" : `ADD YOUR ${chainLabel(b.blockchain).toUpperCase()} ADDRESS`;
@@ -360,10 +361,10 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         label="Held by"
         value={custody}
         onChange={(c) => { setCustody(c); setDest(""); setError(null); }}
-        options={[{ value: "own", title: "My Zcash wallet" }, { value: "browser", title: "One-time wallet" }, { value: "server", title: "Unpair server" }]}
+        options={[{ value: "browser", title: "One-time wallet" }, { value: "server", title: "Unpair server" }, { value: "own", title: "My Zcash wallet" }]}
         warn={custody === "server"}
         note={custody === "server"
-          ? "Our server holds the coins between the swaps and sees both ends. You can close the tab and come back with the link."
+          ? "Our server holds the coins between the swaps, mixed with other people's coins. That is harder to trace on chain, but our server sees both ends. You can close the tab and come back with the link."
           : custody === "browser"
             ? "A fresh Zcash wallet, made in this tab for this one swap. It pays out itself. Unpair never holds your coins. Keep the tab open, or save the recovery file."
             : "ZEC lands in your own Zcash wallet app, shielded. Unpair never holds your coins in this mode. Move it on later with Send out."}
