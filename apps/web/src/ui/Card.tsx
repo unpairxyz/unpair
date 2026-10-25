@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import { Fish } from "./Sprites";
 
 export type Tab = "in" | "out";
 
@@ -72,11 +71,23 @@ export function Legs({ send, get, onFlip }: { send: ReactNode; get: ReactNode; o
       {send}
       <div className="mid">
         <button type="button" className="flip" disabled={!onFlip} onClick={onFlip} aria-label={onFlip ? "Swap send and receive tokens" : "Through the Zcash pool"} title="Through the Zcash pool">
-          <Fish width={30} />
+          {onFlip ? <><FlipFish x={13} up red /><FlipFish x={33} /></> : <FlipFish x={23} red />}
         </button>
       </div>
       {get}
     </div>
+  );
+}
+
+/** A small fish standing on its nose or its tail, like one half of the up-down arrows. */
+function FlipFish({ x, up = false, red = false }: { x: number; up?: boolean; red?: boolean }) {
+  return (
+    <svg viewBox="0 0 46 46" aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+      <g transform={`translate(${x} 23) rotate(${up ? 90 : -90}) scale(.5) translate(-35 -22)`} style={{ ["--fill" as string]: red ? "#FF2E4D" : "#000" }}>
+        <use href="#fishBody" width="70" height="44" />
+        <use href="#eyeOpen" width="70" height="44" />
+      </g>
+    </svg>
   );
 }
 

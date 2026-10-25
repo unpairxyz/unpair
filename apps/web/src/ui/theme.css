@@ -318,8 +318,8 @@ dialog h3{margin:0 0 8px;font:400 34px var(--sfx);letter-spacing:.05em}
 .lm:empty{display:none}
 .mid{position:relative;height:0;z-index:2}
 .mid .flip{position:absolute;left:50%;top:0;transform:translate(-50%,-50%);width:46px;height:46px;border-radius:50%;border:3px solid #000;background:#fff;box-shadow:none;display:grid;place-items:center;padding:0}
-.mid .flip svg{width:30px;height:19px}
-.mid .flip:not(:disabled):hover{background:var(--spot)}
+.mid .flip svg{pointer-events:none}
+.mid .flip:not(:disabled):hover{background:#EDEDED}
 .mid .flip:disabled{cursor:default}
 .tok.fixed{border:0;box-shadow:none;padding:0;cursor:default;background:none}
 .tok.fixed .car{display:none}
