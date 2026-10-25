@@ -9,7 +9,8 @@
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 
-use rand::rngs::ThreadRng;
+use rand::rngs::SysRng;
+use rand_core::{Infallible, TryCryptoRng, TryRng};
 use zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelector;
 use zcash_client_backend::data_api::wallet::{
     create_proposed_transactions, propose_shielding, ConfirmationsPolicy, SpendingKeys,
@@ -38,7 +39,33 @@ use crate::error::Error;
 use crate::keys::{spending_key, Landing, Seed};
 use crate::lightwalletd::{Connector, Pool};
 
-pub type Db = WalletDb<rusqlite::Connection, Network, SystemClock, ThreadRng>;
+/// The operating system's random source as an infallible RNG. It is `Send`,
+/// `Sync` and `Clone`, so a `ShieldWallet` can move to a blocking thread for
+/// proving. A failing OS random source is fatal, as it is for the thread RNG.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OsRng;
+
+impl TryRng for OsRng {
+    type Error = Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Infallible> {
+        Ok(SysRng.try_next_u32().expect("OS random source failed"))
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Infallible> {
+        Ok(SysRng.try_next_u64().expect("OS random source failed"))
+    }
+
+    fn try_fill_bytes(&mut self, dst: &mut [u8]) -> Result<(), Infallible> {
+        SysRng.try_fill_bytes(dst).expect("OS random source failed");
+        Ok(())
+    }
+}
+
+impl TryCryptoRng for OsRng {}
+
+/// The wallet database.
+pub type Db = WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>;
 
 /// Policy knobs with safe defaults.
 #[derive(Clone, Debug)]
@@ -83,8 +110,8 @@ impl ShieldWallet {
         birthday: TreeState,
         policy: ShieldPolicy,
     ) -> Result<Self, Error> {
-        let mut db = WalletDb::for_path(db_path, network, SystemClock, rand::rng())
-            .map_err(Error::wallet)?;
+        let mut db =
+            WalletDb::for_path(db_path, network, SystemClock, OsRng).map_err(Error::wallet)?;
         init_wallet_db(&mut db, Some(seed.secret_vec())).map_err(Error::wallet)?;
 
         let usk = spending_key(&network, seed, 0)?;
@@ -337,5 +364,19 @@ mod tests {
         assert_eq!(p.shielding_threshold.into_u64(), 50_000);
         let c = ConfirmationsPolicy::new(p.min_confirmations, p.min_confirmations, false);
         assert!(c.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod send_check {
+    use super::ShieldWallet;
+
+    fn assert_send<T: Send>() {}
+
+    #[test]
+    fn shield_wallet_is_send() {
+        // Proving and scanning run on blocking threads in the app, so the wallet
+        // must be movable between threads.
+        assert_send::<ShieldWallet>();
     }
 }
