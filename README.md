@@ -10,7 +10,7 @@ Status: pre-alpha. Nothing here is ready to use with real funds.
 
 1. You get a quote in your browser. Our server never sees the deposit and the destination together.
 2. You send the deposit. Fills come from NEAR Intents, THORChain or Maya.
-3. The swap lands at a fresh shielded Zcash address. Transparent routes are shielded in one step.
+3. The swap lands at a fresh Zcash address and is moved into the shielded pool in one step.
 4. In quiet mode the amount is rounded and released after a random delay, then swapped out from a
    fresh shielded source on a different route operator.
 
@@ -37,7 +37,7 @@ Packages live under `packages/`, apps under `apps/`.
 ## What this repo will hold
 
 - `packages/sdk`: TypeScript client for routes, fees, rounding, release timers and transport. Done first, see its README.
-- `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Orchard, ZIP-317 fees. See its README.
+- `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Ironwood, ZIP-317 fees. See its README.
 - `apps/web`: static web app, self-hostable. Fast and quiet modes, client-side quotes. See its README.
 - `apps/api`: Rust service for screening, signed quotes, status, and an optional self-host shielding worker. See its README.
 - `docs/`: [threat model](docs/threat-model.md), [fees](docs/fees.md), [screening policy](docs/screening-policy.md), [self-host guide](docs/self-host.md).

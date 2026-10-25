@@ -1,7 +1,9 @@
 //! The shielding wallet.
 //!
 //! One account. Fresh landing address per swap. Sync against lightwalletd.
-//! Shield everything on the landing addresses into Orchard in one step.
+//! Shield everything on the landing addresses into Ironwood in one step.
+//! Ironwood is the active Orchard-protocol pool since NU6.3 (July 2026);
+//! the old Orchard pool accepts no new value.
 //! The seed never leaves this process.
 
 use std::num::NonZeroU32;
@@ -143,7 +145,9 @@ impl ShieldWallet {
             .transparent()
             .ok_or_else(|| Error::Address("address has no transparent receiver".into()))?;
         if !ua.has_orchard() {
-            return Err(Error::Address("address has no Orchard receiver".into()));
+            return Err(Error::Address(
+                "address has no Orchard receiver (Ironwood shares it)".into(),
+            ));
         }
         Ok(Landing {
             index,
@@ -219,7 +223,7 @@ impl ShieldWallet {
     }
 
     /// Build, prove, sign and store a transaction that moves every spendable
-    /// UTXO on `from` into this account's Orchard pool. Returns the txids and
+    /// UTXO on `from` into this account's Ironwood pool. Returns the txids and
     /// the serialised transactions, ready for `Pool::send_raw_transaction`.
     /// Call `sync` first.
     pub fn shield(&mut self, from: &[TransparentAddress]) -> Result<Vec<(TxId, Vec<u8>)>, Error> {
@@ -234,7 +238,7 @@ impl ShieldWallet {
         let change = SingleOutputChangeStrategy::new(
             StandardFeeRule::Zip317,
             None,
-            ShieldedPool::Orchard,
+            ShieldedPool::Ironwood,
             DustOutputPolicy::default(),
         );
         let proposal = propose_shielding::<

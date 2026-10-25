@@ -7,7 +7,7 @@ It gives the API server and a self-hosted client:
 - a fresh landing address per swap, derived from the user's own seed,
 - lightwalletd access with failover across public servers and a chain tip cross-check,
 - a small wallet database that syncs only what shielding needs,
-- one-step auto-shield: every output on a landing address goes to Orchard,
+- one-step auto-shield: every output on a landing address goes to Ironwood, the live Orchard-protocol pool since NU6.3 (the old Orchard pool accepts no new value),
 - ZIP-317 fee estimates in plain words,
 - Tor transport through arti behind the `tor` feature.
 
@@ -58,7 +58,7 @@ production path. Nym is not wired here; it belongs at the SDK transport layer.
 
 Sapling parameters are loaded from the zcash_proofs default folder and downloaded
 there on first use. Set a folder with `with_params_dir` for air-gapped builds.
-Orchard needs no parameters.
+Ironwood and Orchard need no parameters.
 
 ## Examples
 

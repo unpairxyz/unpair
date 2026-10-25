@@ -9,7 +9,8 @@ import type { SwapStatus } from "./oneclick/types.js";
 
 export type RouteId = "oneclick" | "thorchain" | "maya";
 
-/** Unpair's swap states. These are the words the UI shows. */
+/** Unpair's swap states. These are the words the UI shows. "landed" means the
+ * ZEC reached the landing address; the wallet then moves it into the shielded pool. */
 export type UnpairState =
   | "quote"
   | "waiting_for_deposit"
@@ -22,7 +23,7 @@ export const UNPAIR_STATE_LABELS: Record<UnpairState, string> = {
   quote: "Quote",
   waiting_for_deposit: "Waiting for deposit",
   routing: "Routing",
-  landed: "Landed in Orchard",
+  landed: "Shielded",
   refunded: "Refunded",
   failed: "Failed",
 };

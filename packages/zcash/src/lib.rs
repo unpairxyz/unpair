@@ -4,7 +4,8 @@
 //! - derives a fresh transparent landing address per swap from the user's own seed,
 //! - talks to public lightwalletd servers with failover and a tip height cross-check,
 //! - syncs a small wallet database so anchors and UTXOs are known,
-//! - shields everything that lands on a landing address into Orchard in one step,
+//! - shields everything that lands on a landing address into Ironwood in one step
+//!   (Ironwood is the live Orchard-protocol pool since NU6.3; same addresses and keys),
 //! - estimates ZIP-317 fees in plain words before anything moves,
 //! - optionally routes all of the above over Tor (feature `tor`).
 //!

@@ -58,7 +58,7 @@ export const STATE_COPY: Record<UnpairState, { label: string; text: string }> = 
   quote: { label: "Quote", text: "Check the numbers, then send the deposit." },
   waiting_for_deposit: { label: "Waiting for deposit", text: "Send exactly the amount shown to the deposit address before the deadline." },
   routing: { label: "Routing", text: "Deposit seen. The route is filling your swap." },
-  landed: { label: "Landed", text: "ZEC arrived at your Zcash address. Your wallet shields it from here." },
+  landed: { label: "Landed", text: "ZEC arrived at your Zcash address. Your wallet moves it into the shielded pool from here." },
   refunded: { label: "Refunded", text: "The swap did not complete. Funds went back to your refund address." },
   failed: { label: "Failed", text: "The route reported an error. Nothing was taken. Check the refund address for your deposit." },
 };
