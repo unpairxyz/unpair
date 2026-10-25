@@ -1,0 +1,72 @@
+# Envoy as the gRPC-web proxy for the browser wallet.
+#
+# Replace LWD_HOST with the lightwalletd you trust and PAGE_ORIGIN with the
+# page's origin, for example https://unpair.xyz. Run with
+#   docker run -p 8081:8081 -v $PWD/envoy-lwd.yaml:/etc/envoy/envoy.yaml:ro envoyproxy/envoy:v1.33-latest
+# and put TLS in front of port 8081. Keep the access log off: the proxy sees
+# the visitor's IP and the blocks it asks for, never a key or a note.
+static_resources:
+  listeners:
+    - name: web
+      address: { socket_address: { address: 0.0.0.0, port_value: 8081 } }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: lwd
+                codec_type: AUTO
+                route_config:
+                  name: lwd
+                  virtual_hosts:
+                    - name: lwd
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route:
+                            cluster: lwd
+                            timeout: 0s
+                            auto_host_rewrite: true
+                      typed_per_filter_config:
+                        envoy.filters.http.cors:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy
+                          allow_origin_string_match:
+                            - exact: "PAGE_ORIGIN"
+                          allow_methods: "GET, POST, OPTIONS"
+                          allow_headers: "content-type, x-grpc-web, x-user-agent, grpc-timeout"
+                          expose_headers: "grpc-status, grpc-message"
+                          max_age: "1728000"
+                http_filters:
+                  - name: envoy.filters.http.grpc_web
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.grpc_web.v3.GrpcWeb
+                  - name: envoy.filters.http.cors
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: lwd
+      type: LOGICAL_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: lwd
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address: { socket_address: { address: LWD_HOST, port_value: 443 } }
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: LWD_HOST
+          common_tls_context:
+            validation_context:
+              trusted_ca: { filename: /etc/ssl/certs/ca-certificates.crt }
