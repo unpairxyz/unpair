@@ -27,6 +27,7 @@ use zcash_client_backend::util::SystemClock;
 use zcash_client_backend::wallet::{Note, OvkPolicy};
 use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_client_sqlite::{AccountUuid, WalletDb};
+use zcash_keys::keys::ReceiverRequirement::{Omit, Require};
 use zcash_keys::keys::{UnifiedAddressRequest, UnifiedFullViewingKey, UnifiedSpendingKey};
 use zcash_primitives::transaction::TxId;
 use zcash_proofs::prover::LocalTxProver;
@@ -198,7 +199,10 @@ impl ShieldWallet {
     pub fn next_landing(&mut self) -> Result<Landing, Error> {
         let (ua, index) = self
             .db
-            .get_next_available_address(self.account, UnifiedAddressRequest::ALLOW_ALL)
+            .get_next_available_address(
+                self.account,
+                UnifiedAddressRequest::unsafe_custom(Require, Omit, Require),
+            )
             .map_err(Error::wallet)?
             .ok_or_else(|| Error::Address("no address available for account".into()))?;
         let transparent = *ua
