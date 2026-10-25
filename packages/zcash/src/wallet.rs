@@ -23,7 +23,9 @@ use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::fees::{DustOutputPolicy, StandardFeeRule};
 use zcash_client_backend::proto::service::TreeState;
 use zcash_client_backend::sync;
+#[cfg(not(target_family = "wasm"))]
 use zcash_client_backend::util::SystemClock;
+#[cfg(not(target_family = "wasm"))]
 use zcash_client_backend::wallet::{Note, OvkPolicy};
 use zcash_client_sqlite::wallet::init::init_wallet_db;
 use zcash_client_sqlite::{AccountUuid, WalletDb};
@@ -68,7 +70,35 @@ impl TryRng for OsRng {
 impl TryCryptoRng for OsRng {}
 
 /// The wallet database.
-pub type Db = WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>;
+/// The wallet's clock: the system clock natively, `Date.now()` in the browser,
+/// where `SystemTime::now()` is not available.
+#[cfg(not(target_family = "wasm"))]
+pub type Clock = SystemClock;
+#[cfg(target_family = "wasm")]
+pub type Clock = WebClock;
+
+#[cfg(target_family = "wasm")]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WebClock;
+
+#[cfg(target_family = "wasm")]
+impl zcash_client_backend::util::Clock for WebClock {
+    fn now(&self) -> std::time::SystemTime {
+        let ms = js_sys::Date::now().max(0.0) as u64;
+        std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn clock() -> Clock {
+    SystemClock
+}
+#[cfg(target_family = "wasm")]
+fn clock() -> Clock {
+    WebClock
+}
+
+pub type Db = WalletDb<rusqlite::Connection, Network, Clock, OsRng>;
 
 /// Policy knobs with safe defaults.
 #[derive(Clone, Debug)]
@@ -144,8 +174,7 @@ impl ShieldWallet {
         birthday: TreeState,
         policy: ShieldPolicy,
     ) -> Result<Self, Error> {
-        let mut db =
-            WalletDb::for_path(db_path, network, SystemClock, OsRng).map_err(Error::wallet)?;
+        let mut db = WalletDb::for_path(db_path, network, clock(), OsRng).map_err(Error::wallet)?;
         init_wallet_db(&mut db, Some(seed.secret_vec())).map_err(Error::wallet)?;
 
         let usk = spending_key(&network, seed, 0)?;
@@ -259,6 +288,10 @@ impl ShieldWallet {
         Err(Error::Sync(last))
     }
 
+    /// Sapling prover for the transaction builder. Native builds load or
+    /// download the Sapling parameters. Browser builds spend Ironwood only and
+    /// use [`crate::prover::NoSapling`], which never has to prove anything.
+    #[cfg(not(target_family = "wasm"))]
     fn prover(&self) -> Result<LocalTxProver, Error> {
         if let Some(dir) = &self.params_dir {
             let spend = dir.join("sapling-spend.params");
@@ -279,6 +312,11 @@ impl ShieldWallet {
             .map_err(|e| Error::Params(e.to_string()))?;
         LocalTxProver::with_default_location()
             .ok_or_else(|| Error::Params("parameters not found after download".into()))
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn prover(&self) -> Result<crate::prover::NoSapling, Error> {
+        Ok(crate::prover::NoSapling)
     }
 
     fn confirmations(&self) -> ConfirmationsPolicy {
@@ -345,7 +383,7 @@ impl ShieldWallet {
         >(
             &mut self.db,
             &self.network,
-            &SystemClock,
+            &clock(),
             &mut rng,
             &prover,
             &prover,
@@ -495,7 +533,7 @@ impl ShieldWallet {
         >(
             &mut self.db,
             &self.network,
-            &SystemClock,
+            &clock(),
             &mut rng,
             &prover,
             &prover,
@@ -567,6 +605,7 @@ mod send_check {
 
     fn assert_send<T: Send>() {}
 
+    #[cfg(not(target_family = "wasm"))]
     #[test]
     fn shield_wallet_is_send() {
         // Proving and scanning run on blocking threads in the app, so the wallet

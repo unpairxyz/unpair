@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["packages/zcash", "apps/api", "apps/desktop/src-tauri"]
+members = ["packages/zcash", "packages/zcash-web", "apps/api", "apps/desktop/src-tauri"]
+exclude = ["vendor/rusqlite"]
 
 [workspace.package]
 edition = "2021"
@@ -10,3 +11,8 @@ repository = "https://github.com/unpairxyz/unpair"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# rusqlite 0.40 builds for the browser; librustzcash still asks for 0.37.
+# See vendor/rusqlite/UNPAIR-PATCH.md.
+[patch.crates-io]
+rusqlite = { path = "vendor/rusqlite" }
