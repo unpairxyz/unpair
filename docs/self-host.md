@@ -38,7 +38,10 @@ is served under a sub-path instead of a domain of its own.
 
 Needed for screening and signed quotes. Without a seed file it holds no key that
 can receive funds; with one it runs the hosted swap path described below.
-See `apps/api/README.md`. A 1 vCPU, 1 GB VPS is enough. Build off the box:
+See `apps/api/README.md`. A 1 vCPU, 1 GB VPS is enough without hosted swaps;
+with them, 2 GB. Build off the box. The "API binary" workflow builds a Linux
+x86_64 release on every push to main and on request, and keeps it as an
+artifact for 30 days. Or build it yourself:
 
 ```sh
 cargo build -p unpair-api --release
@@ -82,7 +85,8 @@ Any gRPC-web capable proxy works; Envoy's `grpc_web` filter is the common
 one. `apps/api/deploy/envoy-lwd.yaml` is a working Envoy configuration:
 replace `LWD_HOST` with a lightwalletd you trust and `PAGE_ORIGIN` with the
 page's origin, run it, put TLS in front, and set `VITE_LWD_GRPC_WEB_URL` to
-the proxy's URL when you build the page.
+the proxy's URL when you build the page. The Caddyfile in the same folder has
+a host for it with the access log off.
 
 The proxy sees the visitor's IP and the block ranges the wallet asks for. It
 never sees a key or a note. Keep its access log off, or short.
