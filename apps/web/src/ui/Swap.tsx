@@ -82,7 +82,6 @@ export function Address({ value, qr = false }: { value: string; qr?: boolean }) 
     </div>
   );
 }
-}
 
 export const STATUS_PANELS = [
   { title: "DEPOSIT SEEN", text: "Your deposit arrived. Confirming." },
