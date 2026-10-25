@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { bech32mDecode, decodeUnified } from "../src/unified.js";
+import { readFileSync } from "node:fs";
+import { bech32mDecode, decodeUnified, isExpired } from "../src/unified.js";
+
+// From github.com/zcash/zcash-test-vectors, test-vectors/json/unified_address_r2.json.
+type Row = [string | null, string | null, string | null, string | null, number | null, number | null, string, string, number, number];
+const R2: Row[] = (JSON.parse(readFileSync(new URL("./fixtures/unified_address_r2.json", import.meta.url), "utf8")) as unknown[]).filter(
+  (r): r is Row => Array.isArray(r) && r.length === 10,
+);
 
 // Addresses derived in Rust from the BIP-39 test phrase "abandon ... art" at
 // diversifier index 0 (packages/zcash/examples/landing.rs).
@@ -24,6 +31,34 @@ describe("unified addresses", () => {
       const u = decodeUnified(a);
       expect(u?.receivers).toEqual({ p2pkh: false, p2sh: false, sapling: false, orchard: true, unknown: [] });
     }
+  });
+
+  it("decodes every ZIP 316 revision 2 vector", () => {
+    expect(R2.length).toBe(60);
+    for (const [p2pkh, p2sh, sapling, orchard, height, time, addr] of R2) {
+      const u = decodeUnified(addr);
+      expect(u, addr).not.toBeNull();
+      expect(u?.revision).toBe(2);
+      expect(u?.network).toBe("mainnet");
+      expect(u?.receivers.p2pkh).toBe(p2pkh !== null);
+      expect(u?.receivers.p2sh).toBe(p2sh !== null);
+      expect(u?.receivers.sapling).toBe(sapling !== null);
+      expect(u?.receivers.orchard).toBe(orchard !== null);
+      expect(u?.expiryHeight).toBe(height);
+      expect(u?.expiryTime).toBe(time);
+      if (addr.startsWith("zu")) expect(u?.receivers.p2pkh || u?.receivers.p2sh).toBe(false);
+    }
+  });
+
+  it("judges expiry from time, and from height when known", () => {
+    const withTime = R2.find((r) => r[5] !== null)!;
+    const u = decodeUnified(withTime[6])!;
+    expect(isExpired(u, { unixSeconds: u.expiryTime! + 1 })).toBe(true);
+    expect(isExpired(u, { unixSeconds: u.expiryTime! - 1 })).toBe(u.expiryHeight !== null ? false : false);
+    const withHeight = R2.find((r) => r[4] !== null && r[5] === null)!;
+    const h = decodeUnified(withHeight[6])!;
+    expect(isExpired(h, { unixSeconds: 0 })).toBe(false);
+    expect(isExpired(h, { unixSeconds: 0, height: h.expiryHeight! + 1 })).toBe(true);
   });
 
   it("refuses junk and typos", () => {
