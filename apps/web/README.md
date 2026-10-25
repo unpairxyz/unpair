@@ -3,6 +3,18 @@
 A static page. Quotes go from the browser straight to the route, so the server
 that hosts this page never sees your deposit and your Zcash address together.
 
+## Icons
+
+The token picker shows icons from our own origin, never from a third party at
+page load. Fill `public/icons/` before a build:
+
+```sh
+node apps/web/scripts/fetch-icons.mjs
+```
+
+The folder is not committed. The Pages workflow runs the script before it builds.
+Without it, every token shows a monogram.
+
 ## Run
 
 ```sh
