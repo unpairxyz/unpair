@@ -403,14 +403,19 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>
       )}
       {custody === "browser" && !browserOff && (
-        <p className="fine">
-          The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.{" "}
-          <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
-          <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
-        </p>
+        <p className="fine">The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
       )}
       <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
-      <p className="fine">{api ? "Addresses are screened and the quote is signed by the Unpair API." : "The quote comes straight from the route, from your browser."}</p>
+      <p className="fine">
+        {api ? "Addresses are screened and the quote is signed by the Unpair API." : "The quote comes straight from the route, from your browser."}
+        {config.lwdGrpcWebUrl && (
+          <>
+            {" "}
+            <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
+            <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
+          </>
+        )}
+      </p>
 
       <TokenPicker
         open={picking !== null}
@@ -436,8 +441,6 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
 /** Hop two from the user's own wallet: ZEC leaves the pool and arrives as another asset. */
 function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSwapIn: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
-  const [payer, setPayer] = useState<"own" | "browser">("own");
-  const fileRef = useRef<HTMLInputElement>(null);
   const [outId, setOutId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [dest, setDest] = useState("");
@@ -449,13 +452,10 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   const [step, setStep] = useState<
     | { kind: "form" }
     | { kind: "quoted"; quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null; token: TokenInfo }
-    | { kind: "browser"; wallet: BrowserWallet; landing: Landing; outToken: TokenInfo; dest: string }
-    | { kind: "browser-resume"; wallet: BrowserWallet; recovery: Recovery }
   >({ kind: "form" });
 
   const zec = useMemo(() => tokens.find((t) => t.blockchain === "zec" && t.symbol === "ZEC") ?? null, [tokens]);
   const b = useMemo(() => tokens.find((t) => t.assetId === outId) ?? null, [tokens, outId]);
-  const browserOff = payer === "browser" && !config.lwdGrpcWebUrl;
   useEffect(() => {
     if (tokens.length && !outId) setOutId(tokens.find((t) => t.symbol === "USDC" && t.blockchain === "base")?.assetId ?? tokens[0]?.assetId ?? null);
   }, [tokens, outId]);
@@ -473,41 +473,26 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   const refundZ = useZcashCheck(refund);
   const refundVerdict = refundZ ? describeRefundCheck(refundZ) : null;
 
-  const goLabel = payer === "browser" ? "SHOW THE TAB'S ADDRESS" : "SHOW THE ROUTE'S ADDRESS";
+  const goLabel = "SHOW THE ROUTE'S ADDRESS";
   let label = goLabel;
   if (!zec || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
-  else if (browserOff) label = "BROWSER WALLET IS OFF HERE";
   else if (b.blockchain === "zec") label = "PICK A DIFFERENT TOKEN";
   else if (!plan) label = "ENTER AN AMOUNT";
   else if (!destCheck?.ok) label = `ADD YOUR ${chainLabel(b.blockchain).toUpperCase()} ADDRESS`;
-  else if (payer === "own" && !refundVerdict?.ok) label = "ADD A ZCASH REFUND ADDRESS";
+  else if (!refundVerdict?.ok) label = "ADD A ZCASH REFUND ADDRESS";
   const ready = label === goLabel && !busy;
 
   let hint: string | null = null;
   if (error) hint = error;
-  else if (browserOff) hint = "This page was built without a Zcash wallet server, so the browser wallet is off. Pay from your own wallet.";
   else if (planError) hint = planError;
   else if (destCheck && !destCheck.ok) hint = destCheck.text;
-  else if (payer === "own" && refundVerdict && !refundVerdict.ok) hint = refundVerdict.text;
+  else if (refundVerdict && !refundVerdict.ok) hint = refundVerdict.text;
 
   async function go() {
     if (!zec || !b || !plan) return;
     setBusy(true);
     setError(null);
     try {
-      if (payer === "browser") {
-        if (!config.lwdGrpcWebUrl) throw new Error("The browser wallet needs a Zcash wallet server.");
-        const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl);
-        try {
-          const landing = await wallet.nextLanding();
-          setStep({ kind: "browser", wallet, landing, outToken: b, dest: dest.trim() });
-          onStage("deposit");
-        } catch (e) {
-          wallet.close();
-          throw e;
-        }
-        return;
-      }
       const request: QuoteInput = {
         swapType: "EXACT_INPUT",
         slippageTolerance: slippage,
@@ -535,37 +520,13 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   }
 
   function reset() {
-    if (step.kind === "browser" || step.kind === "browser-resume") step.wallet.close();
     setStep({ kind: "form" });
     setError(null);
-  }
-
-  async function resumeFromFile(file: File) {
-    if (!config.lwdGrpcWebUrl) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const recovery = parseRecovery(await file.text(), config.zcashNetwork);
-      const wallet = await BrowserWallet.recover(recovery, config.lwdGrpcWebUrl);
-      setStep({ kind: "browser-resume", wallet, recovery });
-      onStage("pool");
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setBusy(false);
-    }
   }
 
   if (step.kind === "quoted") {
     return <OwnTracking quote={step.quote} signed={step.signed} verified={step.verified} token={step.token} direction="out" shielded={false} quiet={mode === "quiet"} onStage={onStage} onDone={reset} onSendOut={() => {}} />;
   }
-  if (step.kind === "browser") {
-    return <BrowserSwap wallet={step.wallet} landing={step.landing} outToken={step.outToken} dest={step.dest} slippage={slippage} mode={mode} tokens={tokens} onStage={onStage} onDone={reset} />;
-  }
-  if (step.kind === "browser-resume") {
-    return <BrowserSwap wallet={step.wallet} recovery={step.recovery} tokens={tokens} onStage={onStage} onDone={reset} />;
-  }
-
   return (
     <form
       onSubmit={(e) => {
@@ -575,15 +536,7 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
       noValidate
     >
       <CardHead tab="out" onTab={(t) => t === "in" && onSwapIn()} mode={mode} modes={MODES} onMode={setMode} slippage={slippage} slippages={SLIPPAGE_BPS} onSlippage={setSlippage} />
-      <Keeper
-        label="Pay from"
-        value={payer}
-        onChange={(p) => { setPayer(p); setError(null); }}
-        options={[{ value: "own", title: "My wallet" }, { value: "browser", title: "This tab" }]}
-        note={payer === "browser"
-          ? "You pay this tab's shielded address from your wallet. The tab pays the route. Unpair never holds your coins. Keep the tab open, or save the recovery file."
-          : "The second hop. Pay from your shielded balance, never a transparent one, and wait a while after the first hop."}
-      />
+      <p className="knote">The second hop, from your own Zcash wallet. Pay from your shielded balance, never a transparent one, and wait a while after the first hop.</p>
       <Legs
         send={
           <Leg
@@ -607,20 +560,13 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
       />
       <AddressRows>
         {b && <AddressRow id="out-dest" label="To" value={dest} onChange={setDest} placeholder={`Your ${chainLabel(b.blockchain)} address`} invalid={destCheck ? !destCheck.ok : false} />}
-        {payer === "own" && <AddressRow id="out-refund" label="Refund" value={refund} onChange={setRefund} placeholder="A fresh address of your Zcash wallet" invalid={refundVerdict ? !refundVerdict.ok : false} />}
+        <AddressRow id="out-refund" label="Refund" value={refund} onChange={setRefund} placeholder="A fresh address of your Zcash wallet" invalid={refundVerdict ? !refundVerdict.ok : false} />
       </AddressRows>
       <Hint>{hint}</Hint>
       {zec && b && plan && b.blockchain !== "zec" && (
         <Details a={zec} b={b} amount={sendNum} out={out} minOut={out * (1 - slippage / 10_000)} eta="~8 min" time="about 8 min after your payment confirms" />
       )}
-      {payer === "browser" && !browserOff && (
-        <p className="fine">
-          A failed hop two comes back to the tab's wallet, which shields it again. The wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.{" "}
-          <button type="button" className="link" disabled={busy} onClick={() => fileRef.current?.click()}>Have a recovery file?</button>
-          <input ref={fileRef} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void resumeFromFile(f); }} />
-        </p>
-      )}
-      <GoButton type="submit" disabled={!ready}>{busy ? (payer === "browser" ? "MAKING THE WALLET" : "GETTING A QUOTE") : label}</GoButton>
+      <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
       <TokenPicker open={picking} title="YOU RECEIVE" tokens={tokens.filter((t) => t.blockchain !== "zec")} value={outId} onClose={() => setPicking(false)} onPick={(t) => { if (b?.blockchain !== t.blockchain) setDest(""); setOutId(t.assetId); setPicking(false); }} />
     </form>
   );
