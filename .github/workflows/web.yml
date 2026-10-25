@@ -1,0 +1,72 @@
+# Builds the web page and publishes it to GitHub Pages.
+#
+# Set these repository variables (Settings, Secrets and variables, Actions):
+#   VITE_FEE_RECIPIENT   NEAR account that receives the routing fee
+#   VITE_FEE_BPS         fee in basis points, 0 to 100
+#   VITE_OFFICIAL_ORIGIN https://your.domain
+#   VITE_API_URL         https://api.your.domain, or empty for no API
+#   VITE_API_PUBKEY      hex key from GET /v1/pubkey on that API
+#   PAGES_DOMAIN         your.domain, to write the CNAME file; empty for a
+#                        project page under /<repo>/
+# and this secret, optional:
+#   VITE_ONECLICK_JWT    1Click partner key. It ends up in the public bundle,
+#                        like every VITE_ value; a secret keeps it out of logs.
+name: Web page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @unpair/sdk build && pnpm --filter @unpair/client build
+      - name: Build the page
+        env:
+          VITE_FEE_RECIPIENT: ${{ vars.VITE_FEE_RECIPIENT }}
+          VITE_FEE_BPS: ${{ vars.VITE_FEE_BPS }}
+          VITE_OFFICIAL_ORIGIN: ${{ vars.VITE_OFFICIAL_ORIGIN }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_API_PUBKEY: ${{ vars.VITE_API_PUBKEY }}
+          VITE_ONECLICK_JWT: ${{ secrets.VITE_ONECLICK_JWT }}
+          BASE_PATH: ${{ vars.PAGES_DOMAIN == '' && format('/{0}/', github.event.repository.name) || '/' }}
+        run: pnpm --filter @unpair/web build
+      - name: Custom domain
+        if: vars.PAGES_DOMAIN != ''
+        run: echo "${{ vars.PAGES_DOMAIN }}" > apps/web/dist/CNAME
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
