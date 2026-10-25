@@ -43,9 +43,10 @@ Environment values are public and end up in the bundle:
    swap lands, is refunded, or fails.
 
 The Zcash address must be transparent, because the route pays transparent only.
-Use a fresh address from a wallet that shields automatically, such as Zodl or the
-Unpair self-host wallet in `packages/zcash`. The page refuses unified and Sapling
-addresses with a reason.
+Use a fresh address from a wallet that shields on receipt, such as Zodl, Zingo or
+Zkool, or the Unpair app. The page refuses unified and Sapling addresses with a
+reason. This page is the bring-your-own-wallet front end. The Unpair app holds
+the key itself and needs no other wallet.
 
 ## With the API
 

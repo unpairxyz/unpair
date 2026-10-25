@@ -1,8 +1,19 @@
 # Self-host guide
 
-Unpair has three pieces. Each can be hosted on its own.
+Unpair has three pieces. None of them holds a key on a server. Each can be
+hosted or built on its own.
 
-## 1. The web page
+## 1. The app
+
+The desktop app is the part that holds your Zcash key, shields the payout and
+runs the second hop. It is built on `packages/zcash` and ships as signed releases
+with published hashes, so you can check a download against the source. Building
+it yourself from the repo is the same thing without the signature.
+
+Until the app ships, the web page below works with any Zcash wallet that shields
+on receipt, such as Zodl, Zingo or Zkool.
+
+## 2. The web page
 
 Static files. Build and upload them anywhere.
 
@@ -16,10 +27,10 @@ Upload `apps/web/dist`. Set `VITE_FEE_RECIPIENT` and `VITE_FEE_BPS` to route the
 fee to yourself, or `VITE_FEE_BPS=0` for none. The page talks to 1Click from the
 browser. It does not need the API.
 
-## 2. The API
+## 3. The API
 
-Needed for screening, signed quotes and the shielding worker. See `apps/api/README.md`.
-A 2 vCPU, 2 GB VPS is enough. Build off the box:
+Needed for screening and signed quotes. It holds no key that can receive funds.
+See `apps/api/README.md`. A 1 vCPU, 1 GB VPS is enough. Build off the box:
 
 ```sh
 cargo build -p unpair-api --release
@@ -32,18 +43,8 @@ Minimum production settings:
 - `UNPAIR_SIGNING_SEED` set once and kept. Publish the public key next to your domain.
 - `UNPAIR_GEOFENCE_REQUIRE_HEADER=true` when the edge always sets the country header.
 
-## 3. The shielding wallet
-
-Only if you want the server to issue landing addresses and shield for you. The
-seed is yours and the funds are yours. Put a BIP-39 phrase in a file readable only
-by the service user and point `UNPAIR_WALLET_SEED_FILE` at it. Set a long
-`UNPAIR_OPERATOR_TOKEN`. The worker syncs against public lightwalletd servers,
-shields every landed output into Ironwood, and reports through `/v1/landings`.
-
-Build with `--features tor` to route lightwalletd traffic through Tor.
-
 ## Before a public URL
 
 - Run a small mainnet swap end to end with your own funds.
 - Check `/v1/config` shows the fee you expect and screening is not `off`.
-- Keep the seed file and the signing seed out of git and out of backups that others can read.
+- Keep the signing seed out of git and out of backups that others can read.
