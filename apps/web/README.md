@@ -103,6 +103,10 @@ page points to it as the other choice.
   funds between the hops and sees both ends. The choice is only on when the
   configured API runs the hosted service. A swap link `?swap=<id>` reopens a
   hosted swap.
+- **Who pays the route in Send out.** Your own wallet pays the route's Zcash
+  address, or this browser: the tab makes a wallet, you pay its shielded
+  address from any Zcash wallet, and the tab proves and pays hop two. A failed
+  hop two comes back to the tab's wallet.
 - **Refunds in Send out.** The refund address can be a shielded-only unified
   address, so a failed swap comes back straight into the pool, or a transparent
   address that your wallet shields again.

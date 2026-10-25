@@ -36,7 +36,12 @@ type Props = {
   onStage: (s: HeroStage) => void;
   onDone: () => void;
 } & (
-  | { landing: Landing; quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null; token: TokenInfo; outToken: TokenInfo; dest: string; slippage: number; mode: Mode; recovery?: undefined }
+  | ({ landing: Landing; outToken: TokenInfo; dest: string; slippage: number; mode: Mode; recovery?: undefined } & (
+      /** Hop one through the route, paid in `token`. */
+      | { quote: QuoteResponse; signed: SignedQuote | null; verified: boolean | null; token: TokenInfo }
+      /** No hop one: the user pays the tab's own address with ZEC they hold. */
+      | { quote?: undefined; signed?: undefined; verified?: undefined; token?: undefined }
+    ))
   | { recovery: Recovery; landing?: undefined }
 );
 
@@ -67,7 +72,7 @@ export function BrowserSwap(props: Props) {
   }, [phase, sent, onStage]);
 
   // Hop one, tracked on the route until it lands at the wallet's address.
-  const hop1 = fresh ? props.quote : null;
+  const hop1 = fresh ? (props.quote ?? null) : null;
   const depositAddress = hop1?.quote.depositAddress ?? "";
   const memo = hop1?.quote.depositMemo;
   const pollHop1 = useMemo(() => (depositAddress ? () => (api ? api.status(depositAddress, memo) : client.status(depositAddress, memo)) : null), [depositAddress, memo]);
@@ -233,7 +238,20 @@ export function BrowserSwap(props: Props) {
     );
   }
 
-  if (phase === "deposit" && fresh) {
+  if (phase === "deposit" && fresh && !props.quote) {
+    return (
+      <div>
+        <div className="wtitle"><b>PAY THE TAB</b><span className="chip">from your Zcash wallet</span></div>
+        <p style={{ margin: 0, font: "700 15px var(--ui)" }}>Send the ZEC you want to move to this tab's shielded address, from Zodl, Zingo, Zkool or any wallet. Once it lands, the tab sends it on to {outToken?.symbol ?? "your asset"} on {chainLabel(outToken?.blockchain ?? "")} at your address.</p>
+        <div className="box"><span className="lbl">This tab's Zcash address, shielded</span><Address value={props.landing.shielded} /></div>
+        <Mascot>Pay from a shielded balance. Any amount works; the tab sends on what lands, minus the network fee.</Mascot>
+        <GoButton onClick={() => setPhase("pool")}>I SENT IT!</GoButton>
+        {startOver}
+      </div>
+    );
+  }
+
+  if (phase === "deposit" && fresh && props.quote) {
     const q = props.quote.quote;
     const seed = markSeed(props.signed, props.quote);
     const deadline = depositDeadline(props.quote);
