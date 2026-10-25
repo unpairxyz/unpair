@@ -243,7 +243,7 @@ export function BrowserSwap(props: Props) {
       <div>
         <div className="wtitle"><b>PAY THE TAB</b><span className="chip">from your Zcash wallet</span></div>
         <p style={{ margin: 0, font: "700 15px var(--ui)" }}>Send the ZEC you want to move to this tab's shielded address, from Zodl, Zingo, Zkool or any wallet. Once it lands, the tab sends it on to {outToken?.symbol ?? "your asset"} on {chainLabel(outToken?.blockchain ?? "")} at your address.</p>
-        <div className="box"><span className="lbl">One-time wallet address, shielded</span><Address value={props.landing.shielded} /></div>
+        <div className="box"><span className="lbl">One-time wallet address, shielded</span><Address value={props.landing.shielded} qr /></div>
         <Mascot>Pay from a shielded balance. Any amount works; the tab sends on what lands, minus the network fee.</Mascot>
         <GoButton onClick={() => setPhase("pool")}>I SENT IT!</GoButton>
         {startOver}
@@ -264,7 +264,7 @@ export function BrowserSwap(props: Props) {
             <div><b>{props.signed && props.verified ? "Quote signed by Unpair" : "Quote signed by the route"}</b> <span className="code">{shortCode(seed)}</span></div>
           </div>
           <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {props.token.symbol}</div></div>
-          <div className="box"><span className="lbl">To this address, once</span><Address value={depositAddress} /></div>
+          <div className="box"><span className="lbl">To this address, once</span><Address value={depositAddress} qr /></div>
           {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
           {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
           <Mascot>The route pays this tab's shielded address. Keep the tab open; I do the rest here.</Mascot>
@@ -272,7 +272,7 @@ export function BrowserSwap(props: Props) {
           <details className="det">
             <summary><span>Already hold ZEC?</span><span className="code">DIRECT</span></summary>
             <p className="fine">Send any amount of ZEC from your own wallet to this tab's shielded address instead. That skips the first hop. Once it lands, the tab sends it on to {outToken?.symbol ?? "your asset"} as planned.</p>
-            <div className="box"><span className="lbl">One-time wallet address, shielded</span><Address value={props.landing.shielded} /></div>
+            <div className="box"><span className="lbl">One-time wallet address, shielded</span><Address value={props.landing.shielded} qr /></div>
             <GoButton ghost onClick={() => setPhase("pool")}>I SENT ZEC DIRECTLY</GoButton>
           </details>
           {startOver}

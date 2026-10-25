@@ -1,5 +1,5 @@
-import qrcode from "qrcode-generator";
 import { useMemo, useState, type ReactNode } from "react";
+import { Qr } from "./Qr";
 import { Fish, type Face } from "./Sprites";
 
 /** Two-way choice drawn as a manga toggle (Fast/Quiet, My browser/Unpair server). */
@@ -54,16 +54,15 @@ export function PoolDivider({ onFlip }: { onFlip?: () => void }) {
 /**
  * An address or link to copy or scan. The text is grouped in fours for
  * reading, but the groups are spans with CSS gaps, so a selection copies the
- * exact value. The copy button writes the exact value too. The QR holds it
- * as is, so a wallet can scan a deposit address straight off the page.
+ * exact value. The copy button writes the exact value too. With `qr`, the
+ * QR code shows next to the text, so a wallet can scan it straight away.
  */
-export function Address({ value, qr = true }: { value: string; qr?: boolean }) {
+export function Address({ value, qr = false }: { value: string; qr?: boolean }) {
   const [copied, setCopied] = useState(false);
   const groups = useMemo(() => {
     if (value.length < 16) return { head: value, mid: [] as string[], tail: "" };
     return { head: value.slice(0, 6), mid: value.slice(6, -6).match(/.{1,4}/g) ?? [], tail: value.slice(-6) };
   }, [value]);
-  const svg = useMemo(() => (qr ? qrSvg(value) : null), [qr, value]);
   async function copy() {
     try {
       await navigator.clipboard.writeText(value);
@@ -75,7 +74,7 @@ export function Address({ value, qr = true }: { value: string; qr?: boolean }) {
   }
   return (
     <div className="addrwrap">
-      {svg && <div className="qr" aria-label="QR code of the value below" dangerouslySetInnerHTML={{ __html: svg }} />}
+      {qr && <Qr value={value} />}
       <div className="addrtext">
         <div className="addr"><b>{groups.head}</b>{groups.mid.map((g, i) => <span key={i}>{g}</span>)}<b>{groups.tail}</b></div>
         <button type="button" className="mini copy" onClick={() => void copy()} aria-live="polite">{copied ? "COPIED" : "COPY"}</button>
@@ -83,16 +82,6 @@ export function Address({ value, qr = true }: { value: string; qr?: boolean }) {
     </div>
   );
 }
-
-/** The value as a QR code, as inline SVG. Error correction M, auto size. */
-function qrSvg(value: string): string {
-  const q = qrcode(0, "M");
-  q.addData(value);
-  q.make();
-  const n = q.getModuleCount();
-  let path = "";
-  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) path += `M${c} ${r}h1v1h-1z`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges"><rect width="${n}" height="${n}" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
 }
 
 export const STATUS_PANELS = [
