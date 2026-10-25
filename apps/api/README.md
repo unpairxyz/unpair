@@ -5,7 +5,7 @@ A small Rust service. It does the parts a static page cannot:
 - **Screening before execution.** Geofence from the edge country header and an address screen on the refund and destination addresses. A refused flow gets no quote, so no fee is ever taken from it.
 - **Signed quotes.** The server forwards a quote to 1Click with its own fee settings and signs the result with an Ed25519 key. The web app pins the public key, so a clone site cannot show a forged Unpair quote.
 - **Status lookups** for a deposit address.
-- **Self-host shielding worker**, off by default. When an operator gives the server a seed, it issues landing addresses and shields whatever lands on them into Orchard every two minutes. The hosted unpair.xyz instance does not run this part. Users bring their own shielding wallet.
+- **Self-host shielding worker**, off by default. When an operator gives the server a seed, it issues landing addresses and shields whatever lands on them into Ironwood every two minutes. The hosted unpair.xyz instance does not run this part. Users bring their own shielding wallet.
 
 It holds no user funds in any mode. In self-host mode the funds are the operator's own.
 

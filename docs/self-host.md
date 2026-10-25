@@ -38,7 +38,7 @@ Only if you want the server to issue landing addresses and shield for you. The
 seed is yours and the funds are yours. Put a BIP-39 phrase in a file readable only
 by the service user and point `UNPAIR_WALLET_SEED_FILE` at it. Set a long
 `UNPAIR_OPERATOR_TOKEN`. The worker syncs against public lightwalletd servers,
-shields every landed output into Orchard, and reports through `/v1/landings`.
+shields every landed output into Ironwood, and reports through `/v1/landings`.
 
 Build with `--features tor` to route lightwalletd traffic through Tor.
 

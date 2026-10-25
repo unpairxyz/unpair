@@ -201,7 +201,7 @@ export function App() {
           <label htmlFor="dest">Zcash address</label>
           <input id="dest" placeholder="t1..." value={destination} onChange={(e) => setDestination(e.target.value)} autoComplete="off" spellCheck={false} className="mono" />
           {destCheck && <p className={`hint ${destOk ? "ok" : "bad"}`}>{describeCheck(destCheck).text}</p>}
-          {!destCheck && <p className="hint">A fresh transparent address from a wallet that shields automatically, such as Zodl or the Unpair self-host wallet. Use it once.</p>}
+          {!destCheck && <p className="hint">A fresh transparent address from a wallet that shields automatically, such as Zodl, Zingo or Zkool, or the Unpair self-host wallet. Use it once.</p>}
 
           {feePreview && <p className="hint">{feePreview.text}</p>}
           {formError && <p className="hint bad">{formError}</p>}

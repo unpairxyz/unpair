@@ -21,7 +21,7 @@ The cap in code is 1% per hop.
 | Step | Who pays | Amount |
 |---|---|---|
 | Deposit on the source chain | You | Source chain gas |
-| Shield to Orchard | You, from the landed amount | 0.00015 ZEC for one landing output, 0.00005 ZEC more per extra output (ZIP 317) |
+| Shield into the pool | You, from the landed amount | 0.00015 ZEC for one landing output, 0.00005 ZEC more per extra output (ZIP 317) |
 | Release in quiet mode | You, from the shielded balance | 0.0001 ZEC |
 
 Unpair takes nothing on network fee steps.

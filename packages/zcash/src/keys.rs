@@ -3,7 +3,7 @@
 //! One ZIP-32 account per user. Each swap gets the next unified address of
 //! that account. The transparent receiver of that address is the landing
 //! address the route operator pays. Its Orchard receiver is where the shield
-//! step sends the funds. A landing address is used once.
+//! step sends the funds; Ironwood, the live pool, shares the Orchard receiver. A landing address is used once.
 
 use bip0039::{English, Mnemonic};
 use secrecy::{ExposeSecret, SecretVec};
@@ -69,7 +69,7 @@ pub struct Landing {
     pub index: DiversifierIndex,
     /// Transparent receiver. This is what the route operator pays.
     pub transparent: TransparentAddress,
-    /// The full unified address, with Orchard receiver.
+    /// The full unified address, with Orchard receiver (used by Ironwood too).
     pub unified: UnifiedAddress,
 }
 

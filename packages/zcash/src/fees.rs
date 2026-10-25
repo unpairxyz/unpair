@@ -4,19 +4,20 @@
 //! These helpers give the same number up front so the UI can show it before
 //! anything moves. Formula (ZIP 317): fee = marginal_fee * max(grace_actions,
 //! logical_actions), with logical_actions = max(ceil(tin_bytes / 150),
-//! ceil(tout_bytes / 34)) + max(sapling_spends, sapling_outputs) + orchard_actions.
+//! ceil(tout_bytes / 34)) + max(sapling_spends, sapling_outputs) + shielded_actions.
+//! Ironwood actions are priced like Orchard actions.
 
 use zcash_primitives::transaction::fees::zip317::{
     GRACE_ACTIONS, MARGINAL_FEE, P2PKH_STANDARD_INPUT_SIZE, P2PKH_STANDARD_OUTPUT_SIZE,
 };
 use zcash_protocol::value::Zatoshis;
 
-/// Orchard bundles carry at least two actions. A shield has one real output.
+/// Orchard and Ironwood bundles carry at least two actions. A shield has one real output.
 pub const MIN_ORCHARD_ACTIONS: usize = 2;
 
 /// Fee for a transaction that spends `transparent_inputs` P2PKH outputs, creates
-/// `transparent_outputs` P2PKH outputs and `orchard_outputs` Orchard notes with no
-/// shielded spends.
+/// `transparent_outputs` P2PKH outputs and `orchard_outputs` Orchard-protocol notes
+/// (Orchard or Ironwood) with no shielded spends.
 pub fn zip317_fee(
     transparent_inputs: usize,
     transparent_outputs: usize,
@@ -37,7 +38,7 @@ pub fn zip317_fee(
     Zatoshis::from_u64(MARGINAL_FEE.into_u64() * actions).expect("fee fits")
 }
 
-/// Fee to shield `utxos` transparent outputs into one Orchard note.
+/// Fee to shield `utxos` transparent outputs into one Ironwood note.
 pub fn shield_fee(utxos: usize) -> Zatoshis {
     zip317_fee(utxos, 0, 1)
 }
