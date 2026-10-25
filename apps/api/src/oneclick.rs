@@ -91,6 +91,33 @@ impl OneClick {
         Ok(json)
     }
 
+    /// Tell 1Click about a deposit transaction so it starts the swap at once.
+    pub async fn submit_deposit(
+        &self,
+        tx_hash: &str,
+        deposit_address: &str,
+    ) -> Result<Value, ApiError> {
+        let body = serde_json::json!({ "txHash": tx_hash, "depositAddress": deposit_address });
+        let resp = self
+            .auth(
+                self.http
+                    .post(format!("{}/v0/deposit/submit", self.base))
+                    .json(&body),
+            )
+            .send()
+            .await
+            .map_err(|e| ApiError::Upstream(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(ApiError::Upstream(format!(
+                "deposit submit {}",
+                resp.status()
+            )));
+        }
+        resp.json()
+            .await
+            .map_err(|e| ApiError::Upstream(e.to_string()))
+    }
+
     pub async fn status(
         &self,
         deposit_address: &str,

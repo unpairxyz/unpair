@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TokenInfo } from "@unpair/sdk";
-import { MODE_COPY, STATE_COPY, describePlan, groupByChain, planAmount } from "../src/swap.js";
+import { HOSTED_COPY, HOSTED_STAGES, MODE_COPY, STATE_COPY, describePlan, groupByChain, hostedStage, isHostedFinal, planAmount } from "../src/swap.js";
 
 const eth: TokenInfo = { assetId: "nep141:eth.omft.near", decimals: 18, blockchain: "eth", symbol: "ETH", price: 3000, priceUpdatedAt: "" };
 const zec: TokenInfo = { assetId: "nep141:zec.omft.near", decimals: 8, blockchain: "zec", symbol: "ZEC", price: 50, priceUpdatedAt: "" };
@@ -34,5 +34,21 @@ describe("groupByChain", () => {
     const g = groupByChain([zec, eth, { ...eth, symbol: "AAVE", assetId: "x" }]);
     expect([...g.keys()]).toEqual(["eth"]);
     expect(g.get("eth")!.map((t) => t.symbol)).toEqual(["AAVE", "ETH"]);
+  });
+
+  it("maps hosted states onto the four panels", () => {
+    expect(HOSTED_STAGES).toHaveLength(4);
+    expect(hostedStage("waiting_for_deposit")).toBe(-1);
+    expect(hostedStage("routing_in")).toBe(1);
+    expect(hostedStage("in_pool")).toBe(2);
+    expect(hostedStage("routing_out")).toBe(3);
+    expect(hostedStage("done")).toBe(4);
+    expect(isHostedFinal("done")).toBe(true);
+    expect(isHostedFinal("in_pool")).toBe(false);
+    for (const c of Object.values(HOSTED_COPY)) {
+      expect(c.text).not.toContain("\u2014");
+      expect(c.text).not.toMatch(/hold nothing/i);
+    }
+    expect(HOSTED_COPY.done.text).toMatch(/saw both ends/);
   });
 });

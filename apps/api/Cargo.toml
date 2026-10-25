@@ -1,7 +1,7 @@
 [package]
 name = "unpair-api"
 version = "0.1.0"
-description = "Unpair API: screening, signed quotes and status. Holds no keys."
+description = "Unpair API: screening, signed quotes, status, and the optional hosted swap worker that holds a transit key between the two hops."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -28,6 +28,14 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 dotenvy = "0.15"
+unpair-zcash = { path = "../../packages/zcash" }
+zcash_protocol = "0.11"
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[features]
+default = []
+# Tor for lightwalletd and broadcast. Heavy build.
+tor = ["unpair-zcash/tor"]
 
 [dev-dependencies]
 http-body-util = "0.1"

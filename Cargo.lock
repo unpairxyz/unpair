@@ -8749,6 +8749,7 @@ dependencies = [
  "rand 0.10.3",
  "rand_core 0.10.1",
  "reqwest",
+ "rusqlite",
  "rustls 0.23.46",
  "serde",
  "serde_json",
@@ -8759,6 +8760,8 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "unpair-zcash",
+ "zcash_protocol",
 ]
 
 [[package]]

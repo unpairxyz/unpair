@@ -15,7 +15,59 @@ export interface ApiConfig {
   geofence: string[];
   quote_signing_pubkey: string;
   oneclick_keyed: boolean;
-  wallet: boolean;
+  /** Present when this server holds a transit key for hosted swaps. */
+  hosted: HostedInfo | null;
+}
+
+export interface HostedInfo {
+  /** Largest ZEC amount one swap may carry, in zatoshis. */
+  max_zat: number;
+  open: number;
+  max_open: number;
+  hop2_fee_reserve_zat: number;
+  min_zat: number;
+}
+
+export type HostedState = "waiting_for_deposit" | "routing_in" | "in_pool" | "routing_out" | "done" | "refunded" | "expired" | "failed";
+
+/** What the server shows the page about one hosted swap. */
+export interface HostedSwap {
+  id: string;
+  state: HostedState;
+  mode: "fast" | "quiet";
+  created_unix: number;
+  updated_unix: number;
+  origin_asset: string;
+  destination_asset: string;
+  destination_address: string;
+  deposit_address: string;
+  deposit_memo: string | null;
+  /** Base units of the origin asset. */
+  amount_in: string;
+  deposit_deadline_unix: number;
+  zec_received: number | null;
+  release_at_unix: number | null;
+  hop2_amount_in: number | null;
+  hop2_txid: string | null;
+  delivered_amount: string | null;
+  delivered_tx: string | null;
+  note: string | null;
+}
+
+export interface HostedCreateRequest {
+  mode: "fast" | "quiet";
+  originAsset: string;
+  /** Base units of the origin asset. */
+  amount: string;
+  destinationAsset: string;
+  recipient: string;
+  refundTo: string;
+  slippageTolerance?: number;
+}
+
+export interface HostedCreated {
+  swap: HostedSwap;
+  quote: SignedQuote;
 }
 
 export interface SignedQuote {
@@ -125,5 +177,15 @@ export class ApiClient {
   status(depositAddress: string, depositMemo?: string): Promise<StatusResponse> {
     const q = depositMemo ? `?depositMemo=${encodeURIComponent(depositMemo)}` : "";
     return this.call("GET", `/v1/status/${encodeURIComponent(depositAddress)}${q}`);
+  }
+
+  /** Start a hosted swap. The server screens, takes a fresh landing and quotes hop one. */
+  createHostedSwap(request: HostedCreateRequest): Promise<HostedCreated> {
+    return this.call("POST", "/v1/hosted/swaps", request);
+  }
+
+  hostedSwap(id: string): Promise<HostedSwap> {
+    if (!/^[0-9a-f]{32}$/.test(id)) throw new ApiError("not a swap id", "bad_id", 0);
+    return this.call("GET", `/v1/hosted/swaps/${id}`);
   }
 }

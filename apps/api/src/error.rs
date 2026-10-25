@@ -25,6 +25,10 @@ pub enum ApiError {
     ScreeningUnavailable(String),
     #[error("not found")]
     NotFound,
+    #[error("not authorized")]
+    Unauthorized,
+    #[error("hosted swaps are not offered by this server")]
+    HostedOff,
     #[error("internal error")]
     Internal(String),
 }
@@ -45,6 +49,8 @@ impl IntoResponse for ApiError {
                 (StatusCode::SERVICE_UNAVAILABLE, "screening_unavailable")
             }
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not_found"),
+            ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            ApiError::HostedOff => (StatusCode::NOT_FOUND, "hosted_off"),
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         };
         match &self {

@@ -1,9 +1,12 @@
 mod config;
+mod driver;
 mod error;
+mod hosted;
 mod oneclick;
 mod routes;
 mod screening;
 mod sign;
+mod wallet_worker;
 
 use std::sync::Arc;
 
@@ -36,14 +39,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(pubkey = %signer.public_key_hex(), "quote signing key");
     let oneclick = oneclick::OneClick::new(cfg.oneclick_url.clone(), cfg.oneclick_jwt.clone())?;
 
+    let hosted = match &cfg.hosted {
+        None => None,
+        Some(h) => {
+            let wallet = wallet_worker::start(h.clone())?;
+            let store = hosted::Store::open(&h.data_dir.join("swaps.sqlite"))?;
+            tracing::info!(
+                max_zat = h.max_zat,
+                max_open = h.max_open,
+                "hosted swaps on"
+            );
+            Some(routes::Hosted {
+                wallet,
+                store,
+                config: h.clone(),
+            })
+        }
+    };
+
     let state = Arc::new(AppState {
         bind: cfg.bind,
         config: cfg,
         screener,
         signer,
         oneclick,
+        hosted,
         started_at: std::time::Instant::now(),
     });
+
+    if let Some(h) = state.hosted.as_ref() {
+        driver::spawn(state.clone(), h.config.interval);
+    }
 
     let app = routes::router(state.clone());
     let listener = tokio::net::TcpListener::bind(state.bind).await?;

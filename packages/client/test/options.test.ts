@@ -15,17 +15,14 @@ describe("options", () => {
     expect(routeInfo("maya").payout).toBe("shielded");
   });
 
-  it("only offers landings where the user holds the key", () => {
+  it("says plainly what the hosted choice costs", () => {
     expect(walletInfo(DEFAULT_WALLET).custody).toBe("you");
-    for (const w of WALLET_CHOICES) {
-      if (w.custody === "unpair") {
-        expect(w.available).toBe(false);
-        expect(w.note).toMatch(/custodian/);
-        expect(w.text).toMatch(/link both ends/);
-      } else {
-        expect(w.available).toBe(true);
-      }
-    }
+    const hosted = walletInfo("hosted");
+    expect(hosted.custody).toBe("unpair");
+    expect(hosted.text).toMatch(/sees both ends/);
+    expect(hosted.text).toMatch(/holds your funds/);
+    expect(hosted.note.length).toBeGreaterThan(10);
+    for (const w of WALLET_CHOICES) expect(w.available).toBe(true);
     expect(WALLET_COPY.own.title).toBe(walletInfo("own").title);
   });
 

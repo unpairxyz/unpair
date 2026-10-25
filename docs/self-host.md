@@ -36,7 +36,8 @@ is served under a sub-path instead of a domain of its own.
 
 ## 3. The API
 
-Needed for screening and signed quotes. It holds no key that can receive funds.
+Needed for screening and signed quotes. Without a seed file it holds no key that
+can receive funds; with one it runs the hosted swap path described below.
 See `apps/api/README.md`. A 1 vCPU, 1 GB VPS is enough. Build off the box:
 
 ```sh
@@ -54,6 +55,24 @@ Minimum production settings:
 - `UNPAIR_SCREENING=denylist` or `http`. Never `off` on a public URL.
 - `UNPAIR_SIGNING_SEED` set once and kept. Publish the public key next to your domain.
 - `UNPAIR_GEOFENCE_REQUIRE_HEADER=true` when the edge always sets the country header.
+
+### Hosted swaps
+
+Set `UNPAIR_WALLET_SEED_FILE` to turn on the server path. The API then holds a
+Zcash transit key, takes hop one into its own shielded wallet and pays hop two
+later. That makes you a custodian between the hops. Before turning it on:
+
+- Make a fresh 24-word phrase for this and nothing else. Keep a copy offline.
+  Everything the wallet ever held is under that phrase.
+- Give the service a writable `UNPAIR_WALLET_DIR` (the unit allows
+  `/var/lib/unpair`) and raise `MemoryMax` in the unit to 768M; proving needs it.
+- Set `UNPAIR_OPERATOR_TOKEN` to a long random string. `GET /v1/hosted/report`
+  with `Authorization: Bearer <token>` shows the balance and the swap counts.
+- Keep `UNPAIR_HOSTED_MAX_ZAT` and `UNPAIR_HOSTED_MAX_OPEN` low. They bound what
+  a compromise of the box can lose.
+- Have counsel look at money-transmission rules where you operate, and at the
+  EU rule that bars crypto-asset service providers from privacy-coin accounts
+  from 10 July 2027, before the URL is public.
 
 ## Before a public URL
 
