@@ -8,18 +8,64 @@
 import type { RouteId } from "@unpair/sdk";
 
 /** Where the ZEC lands. */
-export type WalletChoice = "own" | "unpair_app";
+export type WalletChoice = "own" | "unpair_app" | "hosted";
 
-export const WALLET_COPY: Record<WalletChoice, { title: string; text: string }> = {
-  own: {
+export interface WalletInfo {
+  id: WalletChoice;
+  title: string;
+  text: string;
+  /** Who can spend the ZEC once it has landed. */
+  custody: "you" | "unpair";
+  /** Can be chosen today. */
+  available: boolean;
+  /** Why it is off. Empty when it is on. */
+  note: string;
+}
+
+/**
+ * Landing choices in the order the page lists them. Only choices where the
+ * user keeps the key are on. A hosted landing would make Unpair a custodian
+ * and the one party that can see both ends, so it stays off until that is
+ * decided and reviewed. It is listed so the trade-off is visible.
+ */
+export const WALLET_CHOICES: readonly WalletInfo[] = [
+  {
+    id: "own",
     title: "My own Zcash wallet",
-    text: "Paste a fresh address from Zodl, Zingo, Zkool or any Zcash wallet. A shielded-only unified address is paid straight into the pool. A transparent address is shielded by your wallet on receipt.",
+    text: "Paste a fresh address from Zodl, Zingo, Zkool or any Zcash wallet. A shielded-only unified address is paid straight into the pool. A transparent address is shielded by your wallet on receipt. Unpair never holds the funds. The payout and its address are readable on chain for this one payment, so the link breaks when you later spend from your wallet.",
+    custody: "you",
+    available: true,
+    note: "",
   },
-  unpair_app: {
+  {
+    id: "unpair_app",
     title: "The Unpair app",
-    text: "The app makes a fresh landing address for every swap and shields it for you. Use the app itself for this swap; this page cannot see its key.",
+    text: "The app makes a fresh landing address for every swap and shields it for you. The key stays on your device. Use the app itself for this swap; this page cannot see its key.",
+    custody: "you",
+    available: true,
+    note: "",
   },
-};
+  {
+    id: "hosted",
+    title: "A wallet Unpair holds for you",
+    text: "Unpair would receive the payout into its own shielded wallet and pay your address later, at a time of your choosing. Your address would never appear on NEAR or in the bridge output. In return you would trust Unpair with your funds, its logs and its solvency, and Unpair would be the one party able to link both ends.",
+    custody: "unpair",
+    available: false,
+    note: "Not offered. It would make Unpair a custodian, which needs a decision and a legal review first.",
+  },
+];
+
+export const WALLET_COPY: Record<WalletChoice, { title: string; text: string }> = Object.fromEntries(
+  WALLET_CHOICES.map((w) => [w.id, { title: w.title, text: w.text }]),
+) as Record<WalletChoice, { title: string; text: string }>;
+
+export function walletInfo(id: WalletChoice): WalletInfo {
+  const w = WALLET_CHOICES.find((x) => x.id === id);
+  if (!w) throw new Error(`unknown wallet choice ${id}`);
+  return w;
+}
+
+export const DEFAULT_WALLET: WalletChoice = "own";
 
 export interface RouteInfo {
   id: RouteId;

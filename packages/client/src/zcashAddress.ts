@@ -124,3 +124,17 @@ export function describeCheck(c: AddressCheck): Verdict {
       return { ok: false, text: c.reason };
   }
 }
+
+/**
+ * Plain words for a Zcash refund address, for the 1Click route. The same
+ * receiver rules apply as for a payout: a shielded-only unified address is
+ * refunded straight into the pool, a transparent receiver is paid in the open.
+ */
+export function describeRefundCheck(c: AddressCheck): Verdict {
+  const v = describeCheck(c);
+  if (!v.ok) return v;
+  if (v.landing === "shielded") {
+    return { ok: true, landing: "shielded", text: "Shielded-only address. If the route fails, the ZEC comes back straight into the shielded pool. The amount and this address are readable on chain for that one refund, so use a fresh address." };
+  }
+  return { ok: true, landing: "transparent", text: "Transparent receiver. If the route fails, the ZEC comes back here in the open and your wallet shields it again. For a refund straight into the pool, paste a shielded-only address from the same wallet." };
+}
