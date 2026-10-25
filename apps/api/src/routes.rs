@@ -17,6 +17,7 @@ use tower_http::trace::TraceLayer;
 use crate::config::{Config, HostedConfig};
 use crate::driver::check_destination;
 use crate::error::ApiError;
+use crate::handoff::{Handoff, PutError};
 use crate::hosted::{self, new_id, parse_rfc3339, Mode, State as SwapState, Store, Swap, SwapView};
 use crate::oneclick::{addresses_to_screen, chain_of_asset, AppFee, OneClick};
 use crate::screening::{geofence, Screener, Verdict};
@@ -37,6 +38,7 @@ pub struct AppState {
     pub signer: QuoteSigner,
     pub oneclick: OneClick,
     pub hosted: Option<Hosted>,
+    pub handoff: Handoff,
     pub started_at: std::time::Instant,
 }
 
@@ -64,6 +66,8 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/hosted/swaps", post(hosted_create))
         .route("/v1/hosted/swaps/{id}", get(hosted_get))
         .route("/v1/hosted/report", get(hosted_report))
+        .route("/v1/handoff", post(handoff_put))
+        .route("/v1/handoff/{id}", get(handoff_get))
         .layer(cors)
         .layer(RequestBodyLimitLayer::new(32 * 1024))
         .layer(TimeoutLayer::with_status_code(
@@ -501,6 +505,58 @@ async fn hosted_report(
     }))
 }
 
+#[derive(Deserialize)]
+pub struct HandoffPut {
+    /// The signed quote as `/v1/quote` returned it.
+    pub quote: Value,
+    /// Seconds to keep it. Clamped to one minute and one day.
+    pub ttl_secs: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct HandoffCreated {
+    pub id: String,
+    pub expires_unix: u64,
+}
+
+#[derive(Serialize)]
+pub struct HandoffView {
+    pub quote: Value,
+    pub expires_unix: u64,
+}
+
+/// Park a signed quote so another device can load it by id. Opt-in, in memory.
+async fn handoff_put(
+    State(s): State<Shared>,
+    Json(req): Json<HandoffPut>,
+) -> Result<Json<HandoffCreated>, ApiError> {
+    if !req.quote.is_object() {
+        return Err(ApiError::BadRequest("quote must be an object".into()));
+    }
+    let (id, expires_unix) = s
+        .handoff
+        .put(req.quote, now_unix(), req.ttl_secs.unwrap_or(2 * 3600))
+        .map_err(|e| match e {
+            PutError::TooLarge => ApiError::BadRequest("quote too large".into()),
+            PutError::Full => ApiError::Upstream("handoff store is full".into()),
+        })?;
+    Ok(Json(HandoffCreated { id, expires_unix }))
+}
+
+async fn handoff_get(
+    State(s): State<Shared>,
+    Path(id): Path<String>,
+) -> Result<Json<HandoffView>, ApiError> {
+    if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::NotFound);
+    }
+    let (quote, expires_unix) = s.handoff.get(&id, now_unix()).ok_or(ApiError::NotFound)?;
+    Ok(Json(HandoffView {
+        quote,
+        expires_unix,
+    }))
+}
+
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -545,6 +601,7 @@ mod tests {
             signer: QuoteSigner::from_seed(cfg.signing_seed.unwrap()),
             oneclick: OneClick::new(cfg.oneclick_url.clone(), None).unwrap(),
             hosted: None,
+            handoff: Handoff::default(),
             started_at: std::time::Instant::now(),
             config: cfg,
         });
@@ -676,6 +733,39 @@ mod tests {
             .unwrap();
         let j = body_json(r).await;
         assert!(j["hosted"].is_null());
+    }
+
+    #[tokio::test]
+    async fn handoff_round_trip() {
+        let app = build_app(test_config());
+        let req = Request::post("/v1/handoff")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r#"{"quote":{"signature":"abc"},"ttl_secs":600}"#,
+            ))
+            .unwrap();
+        let r = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let j = body_json(r).await;
+        let id = j["id"].as_str().unwrap().to_string();
+        assert_eq!(id.len(), 32);
+        let r = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/v1/handoff/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let j = body_json(r).await;
+        assert_eq!(j["quote"]["signature"], "abc");
+        let r = app
+            .oneshot(Request::get("/v1/handoff/zz").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]

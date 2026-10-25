@@ -20,6 +20,8 @@ A small Rust service. It does the parts a static page cannot:
 | POST | `/v1/hosted/swaps` | none | Start a hosted swap: `{mode, originAsset, amount, destinationAsset, recipient, refundTo, slippageTolerance?}`. Screens, takes a fresh shielded landing, quotes hop one to it, returns `{swap, quote}`. |
 | GET | `/v1/hosted/swaps/{id}` | the id | Progress of one hosted swap. The id is 16 random bytes; whoever has it sees the swap. |
 | GET | `/v1/hosted/report` | operator token | Wallet balance, proving and upgrade state, swap counts. |
+| POST | `/v1/handoff` | none | `{quote, ttl_secs?}`: park a signed quote in memory for a second device. Returns `{id, expires_unix}`. Opt-in from the page, at most one day, never written to disk. |
+| GET | `/v1/handoff/{id}` | the id | The parked quote. Whoever has the id sees the quote. |
 
 ### Hosted swap states
 
