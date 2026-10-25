@@ -1,0 +1,24 @@
+[Unit]
+Description=Unpair API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=unpair
+Group=unpair
+EnvironmentFile=/etc/unpair/api.env
+ExecStart=/usr/local/bin/unpair-api
+WorkingDirectory=/var/lib/unpair
+Restart=on-failure
+RestartSec=5
+CPUWeight=50
+MemoryMax=768M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/unpair
+ReadOnlyPaths=/etc/unpair
+
+[Install]
+WantedBy=multi-user.target

@@ -17,11 +17,21 @@ pub const MIN_ORCHARD_ACTIONS: usize = 2;
 /// Fee for a transaction that spends `transparent_inputs` P2PKH outputs, creates
 /// `transparent_outputs` P2PKH outputs and `orchard_outputs` Orchard notes with no
 /// shielded spends.
-pub fn zip317_fee(transparent_inputs: usize, transparent_outputs: usize, orchard_outputs: usize) -> Zatoshis {
+pub fn zip317_fee(
+    transparent_inputs: usize,
+    transparent_outputs: usize,
+    orchard_outputs: usize,
+) -> Zatoshis {
     let tin = transparent_inputs * P2PKH_STANDARD_INPUT_SIZE;
     let tout = transparent_outputs * P2PKH_STANDARD_OUTPUT_SIZE;
-    let transparent_actions = tin.div_ceil(P2PKH_STANDARD_INPUT_SIZE).max(tout.div_ceil(P2PKH_STANDARD_OUTPUT_SIZE));
-    let orchard_actions = if orchard_outputs == 0 { 0 } else { orchard_outputs.max(MIN_ORCHARD_ACTIONS) };
+    let transparent_actions = tin
+        .div_ceil(P2PKH_STANDARD_INPUT_SIZE)
+        .max(tout.div_ceil(P2PKH_STANDARD_OUTPUT_SIZE));
+    let orchard_actions = if orchard_outputs == 0 {
+        0
+    } else {
+        orchard_outputs.max(MIN_ORCHARD_ACTIONS)
+    };
     let logical = transparent_actions + orchard_actions;
     let actions = logical.max(GRACE_ACTIONS) as u64;
     Zatoshis::from_u64(MARGINAL_FEE.into_u64() * actions).expect("fee fits")
@@ -46,7 +56,10 @@ pub fn format_zec(amount: Zatoshis) -> String {
 
 /// Plain words for the UI. No em dashes.
 pub fn describe_shield_fee(utxos: usize) -> String {
-    format!("Network fee to shield: {}. Unpair takes nothing on this step.", format_zec(shield_fee(utxos)))
+    format!(
+        "Network fee to shield: {}. Unpair takes nothing on this step.",
+        format_zec(shield_fee(utxos))
+    )
 }
 
 #[cfg(test)]
@@ -79,7 +92,10 @@ mod tests {
 
     #[test]
     fn words_have_no_em_dash() {
-        assert_eq!(describe_shield_fee(1), "Network fee to shield: 0.00015 ZEC. Unpair takes nothing on this step.");
+        assert_eq!(
+            describe_shield_fee(1),
+            "Network fee to shield: 0.00015 ZEC. Unpair takes nothing on this step."
+        );
         assert!(!describe_shield_fee(3).contains('\u{2014}'));
     }
 }

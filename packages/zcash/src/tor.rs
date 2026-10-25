@@ -26,14 +26,19 @@ impl TorLightwalletd {
         let client = tor::Client::create_with_timeouts(tor_dir, |_| {}, timeouts)
             .await
             .map_err(|e| Error::Lightwalletd(format!("tor: {e}")))?;
-        Ok(Self { client, allow_onion: true })
+        Ok(Self {
+            client,
+            allow_onion: true,
+        })
     }
 }
 
 #[async_trait::async_trait]
 impl Connector for TorLightwalletd {
     async fn connect(&self, endpoint: &str) -> Result<Client, Error> {
-        let uri: http::Uri = endpoint.parse().map_err(|e| Error::Lightwalletd(format!("bad endpoint {endpoint}: {e}")))?;
+        let uri: http::Uri = endpoint
+            .parse()
+            .map_err(|e| Error::Lightwalletd(format!("bad endpoint {endpoint}: {e}")))?;
         self.client
             .connect_to_lightwalletd(uri, self.allow_onion)
             .await

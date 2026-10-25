@@ -81,7 +81,8 @@ impl ShieldWallet {
         birthday: TreeState,
         policy: ShieldPolicy,
     ) -> Result<Self, Error> {
-        let mut db = WalletDb::for_path(db_path, network, SystemClock, rand::rng()).map_err(Error::wallet)?;
+        let mut db = WalletDb::for_path(db_path, network, SystemClock, rand::rng())
+            .map_err(Error::wallet)?;
         init_wallet_db(&mut db, Some(seed.secret_vec())).map_err(Error::wallet)?;
 
         let usk = spending_key(&network, seed, 0)?;
@@ -90,10 +91,15 @@ impl ShieldWallet {
         let account = match db.get_account_for_ufvk(&ufvk).map_err(Error::wallet)? {
             Some(acct) => acct.id(),
             None => {
-                let birthday = AccountBirthday::from_treestate(birthday, None).map_err(|e| Error::Wallet(format!("{e:?}")))?;
-                let (id, created) = db.create_account("unpair", &seed.secret_vec(), &birthday, None).map_err(Error::wallet)?;
+                let birthday = AccountBirthday::from_treestate(birthday, None)
+                    .map_err(|e| Error::Wallet(format!("{e:?}")))?;
+                let (id, created) = db
+                    .create_account("unpair", &seed.secret_vec(), &birthday, None)
+                    .map_err(Error::wallet)?;
                 if created.to_unified_full_viewing_key().encode(&network) != ufvk.encode(&network) {
-                    return Err(Error::Wallet("created account key does not match derived key".into()));
+                    return Err(Error::Wallet(
+                        "created account key does not match derived key".into(),
+                    ));
                 }
                 id
             }
@@ -139,7 +145,11 @@ impl ShieldWallet {
         if !ua.has_orchard() {
             return Err(Error::Address("address has no Orchard receiver".into()));
         }
-        Ok(Landing { index, transparent, unified: ua })
+        Ok(Landing {
+            index,
+            transparent,
+            unified: ua,
+        })
     }
 
     /// All transparent receivers the wallet knows for this account.
@@ -188,14 +198,19 @@ impl ShieldWallet {
             if spend.exists() && output.exists() {
                 return Ok(LocalTxProver::new(&spend, &output));
             }
-            return Err(Error::Params(format!("missing sapling params in {}", dir.display())));
+            return Err(Error::Params(format!(
+                "missing sapling params in {}",
+                dir.display()
+            )));
         }
         if let Some(p) = LocalTxProver::with_default_location() {
             return Ok(p);
         }
         tracing::info!("downloading Sapling proving parameters");
-        zcash_proofs::download_sapling_parameters(Some(120)).map_err(|e| Error::Params(e.to_string()))?;
-        LocalTxProver::with_default_location().ok_or_else(|| Error::Params("parameters not found after download".into()))
+        zcash_proofs::download_sapling_parameters(Some(120))
+            .map_err(|e| Error::Params(e.to_string()))?;
+        LocalTxProver::with_default_location()
+            .ok_or_else(|| Error::Params("parameters not found after download".into()))
     }
 
     fn confirmations(&self) -> ConfirmationsPolicy {
@@ -222,7 +237,13 @@ impl ShieldWallet {
             ShieldedPool::Orchard,
             DustOutputPolicy::default(),
         );
-        let proposal = propose_shielding::<Db, Network, GreedyInputSelector<Db>, SingleOutputChangeStrategy<StandardFeeRule, Db>, std::convert::Infallible>(
+        let proposal = propose_shielding::<
+            Db,
+            Network,
+            GreedyInputSelector<Db>,
+            SingleOutputChangeStrategy<StandardFeeRule, Db>,
+            std::convert::Infallible,
+        >(
             &mut self.db,
             &network,
             &selector,
@@ -246,7 +267,14 @@ impl ShieldWallet {
         let prover = self.prover()?;
         let keys = SpendingKeys::from_unified_spending_key(self.usk.clone());
         let mut rng = rand::rng();
-        let txids = create_proposed_transactions::<Db, Network, std::convert::Infallible, StandardFeeRule, std::convert::Infallible, std::convert::Infallible>(
+        let txids = create_proposed_transactions::<
+            Db,
+            Network,
+            std::convert::Infallible,
+            StandardFeeRule,
+            std::convert::Infallible,
+            std::convert::Infallible,
+        >(
             &mut self.db,
             &self.network,
             &SystemClock,
@@ -266,7 +294,9 @@ impl ShieldWallet {
                 .db
                 .get_transaction(txid)
                 .map_err(Error::wallet)?
-                .ok_or_else(|| Error::Shield(format!("built transaction {txid} not found in wallet")))?;
+                .ok_or_else(|| {
+                    Error::Shield(format!("built transaction {txid} not found in wallet"))
+                })?;
             let mut raw = Vec::new();
             tx.write(&mut raw)?;
             out.push((txid, raw));
@@ -275,7 +305,11 @@ impl ShieldWallet {
     }
 
     /// Sync, shield everything on `from`, broadcast. The one-step auto-shield.
-    pub async fn sync_and_shield<C: Connector>(&mut self, pool: &Pool<C>, from: &[TransparentAddress]) -> Result<Vec<TxId>, Error> {
+    pub async fn sync_and_shield<C: Connector>(
+        &mut self,
+        pool: &Pool<C>,
+        from: &[TransparentAddress],
+    ) -> Result<Vec<TxId>, Error> {
         self.sync(pool).await?;
         let txs = self.shield(from)?;
         let mut sent = Vec::with_capacity(txs.len());
