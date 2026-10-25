@@ -184,6 +184,16 @@ export class ApiClient {
     return this.call("POST", "/v1/hosted/swaps", request);
   }
 
+  /** Park a signed quote for a second device. Opt-in; the server keeps it in memory until `ttlSecs` or one day. */
+  parkQuote(signed: SignedQuote, ttlSecs = 2 * 3600): Promise<{ id: string; expires_unix: number }> {
+    return this.call("POST", "/v1/handoff", { quote: signed, ttl_secs: ttlSecs });
+  }
+
+  parkedQuote(id: string): Promise<{ quote: SignedQuote; expires_unix: number }> {
+    if (!/^[0-9a-f]{32}$/.test(id)) throw new ApiError("not a handoff id", "bad_id", 0);
+    return this.call("GET", `/v1/handoff/${id}`);
+  }
+
   hostedSwap(id: string): Promise<HostedSwap> {
     if (!/^[0-9a-f]{32}$/.test(id)) throw new ApiError("not a swap id", "bad_id", 0);
     return this.call("GET", `/v1/hosted/swaps/${id}`);

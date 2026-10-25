@@ -71,6 +71,7 @@ Nothing else. No own node, no own chain, no token.
 - Refund addresses follow the payout rule. A shielded-only unified address is refunded straight into the pool, a transparent address is shielded again on receipt. Like the payout address, a refund address is readable for that one transaction, so it is fresh and used once.
 - Quiet mode rounds the amount and releases after a random delay with a mean of about 3 hours and a cap of 12.
 - Every fee is shown before the trade and capped in code.
+- "Check on your phone" parks a quote on the server, in memory, only when you ask, under an id nobody can guess, for at most a day. Anyone with that id sees the quote, so the link is yours to keep.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
 
 ## Routes we have not added

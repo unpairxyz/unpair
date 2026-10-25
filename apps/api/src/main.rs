@@ -1,6 +1,7 @@
 mod config;
 mod driver;
 mod error;
+mod handoff;
 mod hosted;
 mod oneclick;
 mod routes;
@@ -64,6 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         signer,
         oneclick,
         hosted,
+        handoff: handoff::Handoff::default(),
         started_at: std::time::Instant::now(),
     });
 
