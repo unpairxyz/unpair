@@ -2,7 +2,7 @@
 
 The Zcash leg of Unpair, as a Rust crate on top of librustzcash.
 
-It gives the API server and a self-hosted client:
+It is the core of the Unpair app and gives it:
 
 - a fresh landing address per swap, derived from the user's own seed,
 - lightwalletd access with failover across public servers and a chain tip cross-check,
@@ -11,7 +11,7 @@ It gives the API server and a self-hosted client:
 - ZIP-317 fee estimates in plain words,
 - Tor transport through arti behind the `tor` feature.
 
-We run no Zcash node. The seed never leaves the process that runs this crate.
+We run no Zcash node. The seed never leaves the device that runs this crate. No Unpair server runs it.
 
 ## Flow
 

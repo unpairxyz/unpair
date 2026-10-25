@@ -8,14 +8,16 @@ Status: pre-alpha. Nothing here is ready to use with real funds.
 
 ## How it works
 
-1. You get a quote in your browser. Our server never sees the deposit and the destination together.
-2. You send the deposit. Fills come from NEAR Intents, THORChain or Maya.
-3. The swap lands at a fresh Zcash address and is moved into the shielded pool in one step.
+1. You get a quote on your device. Our server never sees the deposit and the destination together.
+2. You send the deposit. Fills come from NEAR Intents.
+3. The swap lands at a fresh Zcash address that the Unpair app derived on your device, and the app
+   moves it into the shielded pool in one step.
 4. In quiet mode the amount is rounded and released after a random delay, then swapped out from a
-   fresh shielded source on a different route operator.
+   fresh shielded source.
 
-We hold no funds, run no liquidity and run no node. Revenue is a routing fee shown before every trade
-and capped in code.
+The key that receives and shields your ZEC lives on your device, in the open-source Unpair app. We
+hold no funds and no key, run no liquidity and run no node. Revenue is a routing fee shown before
+every trade and capped in code.
 
 ## Develop
 
@@ -37,15 +39,17 @@ Packages live under `packages/`, apps under `apps/`.
 ## What this repo will hold
 
 - `packages/sdk`: TypeScript client for routes, fees, rounding, release timers and transport. Done first, see its README.
-- `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Ironwood, ZIP-317 fees. See its README.
-- `apps/web`: static web app, self-hostable. Fast and quiet modes, client-side quotes. See its README.
-- `apps/api`: Rust service for screening, signed quotes, status, and an optional self-host shielding worker. See its README.
+- `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Ironwood, ZIP-317 fees. The core of the app. See its README.
+- `apps/desktop`: the Unpair app. Holds the key, shields, runs the second hop. Not started yet.
+- `apps/web`: static web page for people who already run a wallet that shields on receipt. Fast and quiet modes, client-side quotes. See its README.
+- `apps/api`: Rust service for screening, signed quotes and status. Holds no key. See its README.
 - `docs/`: [threat model](docs/threat-model.md), [fees](docs/fees.md), [screening policy](docs/screening-policy.md), [self-host guide](docs/self-host.md).
 
 ## Limits we state up front
 
 - Trustless cross-chain unlinkability does not exist today. Each route operator sees its own leg.
-- NEAR Intents, THORChain and Maya are trusted parties while a swap is in flight.
+- NEAR Intents is a trusted party while a swap is in flight. It is the only one.
+- Lose the seed and nothing can recover the ZEC under it.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
 
 ## Licence
