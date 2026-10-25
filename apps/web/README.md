@@ -32,7 +32,10 @@ pnpm --filter @unpair/web build           # output in apps/web/dist
 ```
 
 Upload `dist/` to any static host. Cloudflare Pages, Netlify, GitHub Pages and a
-plain nginx folder all work. No server code, no database, no cookies.
+plain nginx folder all work. No server code, no database, no cookies. The
+"Web page" workflow builds `dist/` with the browser wallet and the icons on
+every push to main and keeps it as the artifact `unpair-web`; it publishes to
+GitHub Pages only when the repository variable `USE_PAGES` is `true`.
 
 Environment values are public and end up in the bundle:
 
