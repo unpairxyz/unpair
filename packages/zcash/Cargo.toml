@@ -1,0 +1,42 @@
+[package]
+name = "unpair-zcash"
+version = "0.1.0"
+description = "Zcash leg of Unpair: per-swap landing addresses, lightwalletd client with failover, one-step auto-shield to Orchard, ZIP-317 fees."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+zcash_client_backend = { version = "0.25", features = ["lightwalletd-tonic-tls-webpki-roots", "lightwalletd-tonic-transport", "orchard", "transparent-inputs", "sync"] }
+zcash_client_sqlite = { version = "0.23", features = ["orchard", "transparent-inputs"] }
+zcash_primitives = { version = "0.31", features = ["transparent-inputs"] }
+zcash_keys = { version = "0.17", features = ["orchard", "sapling", "transparent-inputs", "unstable"] }
+zcash_protocol = "0.11"
+zcash_address = "0.14"
+zcash_proofs = { version = "0.31", features = ["download-params", "local-prover", "multicore"] }
+zcash_transparent = "0.11"
+orchard = "0.16"
+zip32 = "0.3"
+tonic = { version = "0.14", features = ["transport", "tls-ring", "tls-webpki-roots"] }
+prost = "0.14"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+rand_core = "0.10"
+secrecy = "0.8"
+thiserror = "2"
+tracing = "0.1"
+bip0039 = "0.14"
+rand = { version = "0.10", features = ["std", "sys_rng", "thread_rng"] }
+nonempty = "0.11"
+rusqlite = { version = "0.37", features = ["bundled"] }
+hex = "0.4"
+
+async-trait = "0.1"
+http = "1"
+
+[features]
+default = []
+# Tor via arti. Heavy build. Enables `tor::TorLightwalletd`.
+tor = ["zcash_client_backend/tor"]
+
+[dev-dependencies]
+tempfile = "3"

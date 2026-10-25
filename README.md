@@ -26,12 +26,18 @@ pnpm test
 pnpm build
 ```
 
-Node 22 or later and pnpm 10. Packages live under `packages/`, apps under `apps/`.
+Node 22 or later and pnpm 10 for the TypeScript packages. Rust 1.85 or later for the Rust crates:
+
+```sh
+cargo test
+```
+
+Packages live under `packages/`, apps under `apps/`.
 
 ## What this repo will hold
 
 - `packages/sdk`: TypeScript client for routes, fees, rounding, release timers and transport. Done first, see its README.
-- `packages/zcash`: light client, shielded addresses, auto-shield, shielded refunds.
+- `packages/zcash`: Rust crate for landing addresses, lightwalletd with failover, auto-shield to Orchard, ZIP-317 fees. See its README.
 - `apps/web`: static web app, self-hostable.
 - `apps/api`: Rust service for watching, shielding and screening.
 - `docs/`: threat model, fee table, screening policy and self-host guide.
