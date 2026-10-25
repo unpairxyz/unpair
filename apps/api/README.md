@@ -61,3 +61,13 @@ It fits a 1 vCPU, 1 GB box. Put Cloudflare or nginx in front for TLS and the cou
 ```sh
 cargo test -p unpair-api
 ```
+
+## Making the hosted wallet's seed
+
+```sh
+unpair-api new-seed /etc/unpair/wallet.seed
+```
+
+Writes a fresh 24 word phrase to that file, owner-readable only, never prints
+it, and prints the mainnet height to put in `UNPAIR_WALLET_BIRTHDAY`. Back the
+file up on paper before the first hosted swap.
