@@ -1,4 +1,6 @@
-# Builds the web page and publishes it to GitHub Pages.
+# Builds the web page, keeps it as an artifact, and publishes it to GitHub
+# Pages when the repository variable USE_PAGES is "true". Without Pages,
+# download the artifact and serve dist/ from any static host.
 #
 # Set these repository variables (Settings, Secrets and variables, Actions):
 #   VITE_FEE_RECIPIENT   NEAR account that receives the routing fee
@@ -10,6 +12,8 @@
 #   VITE_ZCASH_NETWORK   main or test
 #   PAGES_DOMAIN         your.domain, to write the CNAME file; empty for a
 #                        project page under /<repo>/
+#   USE_PAGES            "true" to publish to GitHub Pages; otherwise the
+#                        build is only kept as the artifact "unpair-web"
 # and this secret, optional:
 #   VITE_ONECLICK_JWT    1Click partner key. It ends up in the public bundle,
 #                        like every VITE_ value; a secret keeps it out of logs.
@@ -70,17 +74,24 @@ jobs:
           VITE_LWD_GRPC_WEB_URL: ${{ vars.VITE_LWD_GRPC_WEB_URL }}
           VITE_ZCASH_NETWORK: ${{ vars.VITE_ZCASH_NETWORK }}
           VITE_ONECLICK_JWT: ${{ secrets.VITE_ONECLICK_JWT }}
-          BASE_PATH: ${{ vars.PAGES_DOMAIN == '' && format('/{0}/', github.event.repository.name) || '/' }}
+          BASE_PATH: ${{ vars.USE_PAGES == 'true' && vars.PAGES_DOMAIN == '' && format('/{0}/', github.event.repository.name) || '/' }}
         run: pnpm --filter @unpair/web build
       - name: Custom domain
-        if: vars.PAGES_DOMAIN != ''
+        if: vars.USE_PAGES == 'true' && vars.PAGES_DOMAIN != ''
         run: echo "${{ vars.PAGES_DOMAIN }}" > apps/web/dist/CNAME
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unpair-web
+          path: apps/web/dist
+          retention-days: 30
+      - if: vars.USE_PAGES == 'true'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: apps/web/dist
 
   deploy:
     needs: build
+    if: vars.USE_PAGES == 'true'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
