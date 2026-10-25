@@ -251,6 +251,12 @@ export function BrowserSwap(props: Props) {
           {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
           <Mascot>The route pays this tab's shielded address. Keep the tab open; I do the rest here.</Mascot>
           <GoButton onClick={() => setSent(true)}>I SENT IT!</GoButton>
+          <details className="det">
+            <summary><span>Already hold ZEC?</span><span className="code">DIRECT</span></summary>
+            <p className="fine">Send any amount of ZEC from your own wallet to this tab's shielded address instead. That skips the first hop. Once it lands, the tab sends it on to {outToken?.symbol ?? "your asset"} as planned.</p>
+            <div className="box"><span className="lbl">This tab's Zcash address, shielded</span><Address value={props.landing.shielded} /></div>
+            <GoButton ghost onClick={() => setPhase("pool")}>I SENT ZEC DIRECTLY</GoButton>
+          </details>
           {startOver}
         </div>
       );
