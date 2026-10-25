@@ -44,6 +44,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @unpair/sdk build && pnpm --filter @unpair/client build
+      - name: Token and chain icons, served from our own origin
+        continue-on-error: true
+        run: node apps/web/scripts/fetch-icons.mjs
       - name: Build the page
         env:
           VITE_FEE_RECIPIENT: ${{ vars.VITE_FEE_RECIPIENT }}
