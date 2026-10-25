@@ -43,6 +43,41 @@ pub fn check_payout_address<P: Parameters>(params: &P, s: &str) -> Result<ZcashA
     }
 }
 
+/// Seconds per block used to turn a block count into a time. 75 s before NU7.
+pub const SECONDS_PER_BLOCK: u64 = 75;
+
+/// The next network upgrade that is not active yet at `tip`, for the UI.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UpgradeNotice {
+    pub name: &'static str,
+    pub height: u32,
+    pub blocks_left: u32,
+    /// Unix seconds. `now_unix` plus the remaining blocks at [`SECONDS_PER_BLOCK`].
+    pub eta_unix: u64,
+    /// True inside the window where sending is refused.
+    pub sending_paused: bool,
+}
+
+/// `Some` while an upgrade is ahead of `tip`, `None` once it is active.
+pub fn upgrade_notice<P: Parameters>(
+    params: &P,
+    tip: BlockHeight,
+    now_unix: u64,
+) -> Option<UpgradeNotice> {
+    let activation = params.activation_height(NetworkUpgrade::Nu7)?;
+    if tip >= activation {
+        return None;
+    }
+    let blocks_left = u32::from(activation) - u32::from(tip);
+    Some(UpgradeNotice {
+        name: "NU7",
+        height: u32::from(activation),
+        blocks_left,
+        eta_unix: now_unix + u64::from(blocks_left) * SECONDS_PER_BLOCK,
+        sending_paused: blocks_left <= UPGRADE_GUARD_BLOCKS,
+    })
+}
+
 /// `Err(UpgradeWindow)` when `tip` is within [`UPGRADE_GUARD_BLOCKS`] of a
 /// network upgrade that is not active yet.
 pub fn upgrade_guard<P: Parameters>(params: &P, tip: BlockHeight) -> Result<(), Error> {
@@ -77,6 +112,18 @@ mod tests {
         assert!(matches!(u, Err(Error::PayoutAddress(_))));
         let junk = check_payout_address(&n, "hello");
         assert!(matches!(junk, Err(Error::PayoutAddress(_))));
+    }
+
+    #[test]
+    fn notice_counts_down_and_disappears() {
+        let n = Network::MainNetwork;
+        let nu7 = n.activation_height(NetworkUpgrade::Nu7).unwrap();
+        let far = upgrade_notice(&n, nu7 - 1000, 1_000_000).unwrap();
+        assert_eq!(far.blocks_left, 1000);
+        assert_eq!(far.eta_unix, 1_000_000 + 1000 * 75);
+        assert!(!far.sending_paused);
+        assert!(upgrade_notice(&n, nu7 - 40, 0).unwrap().sending_paused);
+        assert!(upgrade_notice(&n, nu7, 0).is_none());
     }
 
     #[test]
