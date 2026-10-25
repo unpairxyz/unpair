@@ -368,3 +368,9 @@ dialog h3{margin:0 0 8px;font:400 34px var(--sfx);letter-spacing:.05em}
 .theme:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink)}
 .theme svg{width:30px;height:30px}
 .logo .mark{width:52px;height:52px;flex:none;border-radius:50%;box-shadow:0 0 0 2px var(--ink)}
+
+/* custody tile: full width, three choices side by side */
+@media (min-width:981px){.info3{grid-template-columns:1fr 1fr}}
+.info3 > .keepp{grid-column:1/-1}
+.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media (max-width:760px){.three{grid-template-columns:1fr}}
