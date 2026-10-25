@@ -6,13 +6,13 @@
  * receiver is probably paid to that receiver. Sapling-only is not paid. The
  * verdict says where the ZEC will land so the user can choose.
  */
-import { decodeUnified, type Receivers } from "./unified.js";
+import { decodeUnified, isExpired, type Receivers } from "./unified.js";
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 export type AddressCheck =
   | { kind: "transparent"; network: "mainnet" | "testnet"; p2sh: boolean }
-  | { kind: "unified"; network: "mainnet" | "testnet"; receivers: Receivers }
+  | { kind: "unified"; network: "mainnet" | "testnet"; receivers: Receivers; revision: 0 | 2; expired: boolean }
   | { kind: "sapling"; network: "mainnet" | "testnet" }
   | { kind: "invalid"; reason: string };
 
@@ -47,10 +47,10 @@ export async function checkZcashAddress(input: string): Promise<AddressCheck> {
   const s = input.trim();
   if (s === "") return { kind: "invalid", reason: "Paste a Zcash address." };
   const lower = s.toLowerCase();
-  if (lower.startsWith("u1") || lower.startsWith("utest1")) {
+  if (/^(u|utest|zu|tu|zutest|tutest)1/.test(lower)) {
     const u = decodeUnified(s);
     if (!u) return { kind: "invalid", reason: "This unified address does not decode. Check for typos." };
-    return { kind: "unified", network: u.network, receivers: u.receivers };
+    return { kind: "unified", network: u.network, receivers: u.receivers, revision: u.revision, expired: isExpired(u, { unixSeconds: Math.floor(Date.now() / 1000) }) };
   }
   if (lower.startsWith("zs1")) return { kind: "sapling", network: "mainnet" };
   if (lower.startsWith("ztestsapling1")) return { kind: "sapling", network: "testnet" };
@@ -99,6 +99,8 @@ export function describeCheck(c: AddressCheck): Verdict {
     case "unified": {
       if (c.network !== "mainnet") return { ok: false, text: "This is a testnet address. Unpair routes on mainnet." };
       const r = c.receivers;
+      if (c.expired) return { ok: false, text: "This address has expired. Ask your wallet for a fresh one." };
+      if (c.revision === 2) return { ok: false, text: "This is a new address format that the routes do not accept yet. Paste a classic unified address starting with u1, or a transparent address, from the same wallet." };
       if (r.unknown.length > 0) return { ok: false, text: "This unified address uses a newer format than this page understands. Paste a transparent address from the same wallet." };
       if (r.p2pkh || r.p2sh) {
         return {

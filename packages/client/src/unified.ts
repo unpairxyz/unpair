@@ -20,8 +20,30 @@ export interface Receivers {
 
 export interface UnifiedAddress {
   network: "mainnet" | "testnet";
+  /** 0 for `u` and `utest`, 2 for `zu`, `tu` and their testnet forms (ZIP 316 revision 2). */
+  revision: 0 | 2;
   receivers: Receivers;
+  /** Revision 2 expiry, if the address carries one. */
+  expiryHeight: number | null;
+  /** Unix seconds. */
+  expiryTime: number | null;
 }
+
+/** True when an expiry is known to have passed. `height` may be unknown. */
+export function isExpired(u: UnifiedAddress, now: { height?: number; unixSeconds: number }): boolean {
+  if (u.expiryTime !== null && now.unixSeconds > u.expiryTime) return true;
+  if (u.expiryHeight !== null && now.height !== undefined && now.height > u.expiryHeight) return true;
+  return false;
+}
+
+const HRPS: Record<string, { network: "mainnet" | "testnet"; revision: 0 | 2; shieldedOnly: boolean }> = {
+  u: { network: "mainnet", revision: 0, shieldedOnly: false },
+  utest: { network: "testnet", revision: 0, shieldedOnly: false },
+  zu: { network: "mainnet", revision: 2, shieldedOnly: true },
+  tu: { network: "mainnet", revision: 2, shieldedOnly: false },
+  zutest: { network: "testnet", revision: 2, shieldedOnly: true },
+  tutest: { network: "testnet", revision: 2, shieldedOnly: false },
+};
 
 const CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BECH32M_CONST = 0x2bc830a3;
@@ -137,8 +159,8 @@ function readCompact(buf: Uint8Array, at: number): [number, number] | null {
 export function decodeUnified(s: string): UnifiedAddress | null {
   const dec = bech32mDecode(s.trim());
   if (!dec) return null;
-  const network = dec.hrp === "u" ? "mainnet" : dec.hrp === "utest" ? "testnet" : null;
-  if (!network) return null;
+  const spec = HRPS[dec.hrp];
+  if (!spec) return null;
   const raw = f4jumbleInverse(dec.data);
   if (!raw) return null;
   // The last 16 bytes are the HRP padded with zeros.
@@ -149,6 +171,8 @@ export function decodeUnified(s: string): UnifiedAddress | null {
   }
   const body = raw.subarray(0, raw.length - 16);
   const receivers: Receivers = { p2pkh: false, p2sh: false, sapling: false, orchard: false, unknown: [] };
+  let expiryHeight: number | null = null;
+  let expiryTime: number | null = null;
   let at = 0;
   let count = 0;
   while (at < body.length) {
@@ -176,8 +200,25 @@ export function decodeUnified(s: string): UnifiedAddress | null {
         if (length !== 43) return null;
         receivers.orchard = true;
         break;
+      case 0xe0:
+        // Revision 2 expiry height, u32 little endian.
+        if (spec.revision !== 2 || length !== 4 || expiryHeight !== null) return null;
+        expiryHeight = (body[afterLen]! | (body[afterLen + 1]! << 8) | (body[afterLen + 2]! << 16)) + body[afterLen + 3]! * 0x1000000;
+        break;
+      case 0xe1: {
+        // Revision 2 expiry time, u64 little endian Unix seconds.
+        if (spec.revision !== 2 || length !== 8 || expiryTime !== null) return null;
+        let t = 0;
+        for (let i = 7; i >= 0; i--) t = t * 256 + body[afterLen + i]!;
+        expiryTime = t;
+        break;
+      }
       default:
-        // Metadata items (0xe0 and up) and future receivers. Kept, not understood.
+        // 0xe2 to 0xfc are must-understand metadata: refuse what we do not know.
+        // A revision 0 address may not carry metadata at all.
+        if (typecode >= 0xe0 && typecode <= 0xfc) return null;
+        if (spec.revision === 0 && typecode >= 0xe0) return null;
+        // Future receivers and ignorable metadata. Kept, not understood.
         receivers.unknown.push(typecode);
     }
     at = afterLen + length;
@@ -185,5 +226,7 @@ export function decodeUnified(s: string): UnifiedAddress | null {
   }
   if (count === 0) return null;
   if (receivers.p2pkh && receivers.p2sh) return null;
-  return { network, receivers };
+  if (spec.shieldedOnly && (receivers.p2pkh || receivers.p2sh)) return null;
+  if (!receivers.p2pkh && !receivers.p2sh && !receivers.sapling && !receivers.orchard && receivers.unknown.length === 0) return null;
+  return { network: spec.network, revision: spec.revision, receivers, expiryHeight, expiryTime };
 }
