@@ -24,7 +24,7 @@ export function Hero({ stage, quiet = false, onOut }: { stage: HeroStage; quiet?
 
   const school = useSchool(
     cv,
-    { n: matchMedia("(max-width:980px)").matches ? 500 : 900, seed: 21, cx: 0.5, cy: 0.5, spread: 0.8 },
+    { n: matchMedia("(max-width:980px)").matches ? 260 : 900, seed: 21, cx: 0.5, cy: 0.5, spread: 0.8 },
     (s) => {
       s.you.on = true;
       s.you.mode = "alone";
