@@ -79,6 +79,8 @@ cargo install wasm-pack
 apps/web/scripts/build-wasm.sh
 ```
 
+The output goes to `apps/web/public/wasm/`, which the page loads at run time.
+
 The secp256k1 C code needs a clang with a WebAssembly backend. Apple's clang
 has none; use Homebrew's llvm or a wasi-sdk release and point
 `CC_wasm32_unknown_unknown` at it. The script looks in the usual places.
