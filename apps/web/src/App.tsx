@@ -431,7 +431,10 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
       )}
       {custody === "server" && hostedInfo && (
-        <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>
+        <p className="fine">
+          Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.
+          {mode === "quiet" && hostedInfo.split && " Quiet mode sends on in standard sizes. Up to 0.02 ZEC can stay behind."}
+        </p>
       )}
       {custody === "browser" && !browserOff && (
         <p className="fine">The one-time wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
@@ -778,9 +781,14 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
       <div>
         {swap.state === "done" ? <DoneBurst /> : <div className="wtitle"><b>{copy.label.toUpperCase()}</b></div>}
         <p style={{ margin: 0, font: "700 15px var(--ui)" }}>
-          {swap.state === "done" ? `${swap.delivered_amount ?? ""} ${outToken?.symbol ?? ""} arrived on ${chainLabel(outToken?.blockchain ?? "")}. On chain, nothing links it to your deposit.` : copy.text}
+          {swap.state === "done"
+            ? swap.parts_total > 1
+              ? `${outToken?.symbol ?? ""} arrived on ${chainLabel(outToken?.blockchain ?? "")} in ${swap.parts_total} parts. On chain, nothing links them to your deposit or to each other.`
+              : `${swap.delivered_amount ?? ""} ${outToken?.symbol ?? ""} arrived on ${chainLabel(outToken?.blockchain ?? "")}. On chain, nothing links it to your deposit.`
+            : copy.text}
         </p>
         {swap.note && <p className="fine">{swap.note}</p>}
+        {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
         {swap.state === "done" && <Mascot face="happy" red={false}>I stayed in the school. A fresh fish swam out to your address. The server saw both ends and forgets this swap in seven days.</Mascot>}
         <p className="fine">Swap id {swap.id}</p>
         <GoButton ghost onClick={onDone}>NEW SWAP</GoButton>
@@ -814,8 +822,10 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
         <dt>Receive</dt>
         <dd>{outToken?.symbol ?? swap.destination_asset} on {chainLabel(outToken?.blockchain ?? "")} at {swap.destination_address.slice(0, 10)}…</dd>
         {swap.zec_received !== null && <><dt>In the pool</dt><dd>{formatUnits(BigInt(swap.zec_received), ZEC_DECIMALS)} ZEC</dd></>}
+        {swap.parts_total > 1 && <><dt>Parts</dt><dd>{swap.parts_delivered} of {swap.parts_total} delivered</dd></>}
         {swap.hop2_txid && <><dt>Zcash tx</dt><dd className="code">{swap.hop2_txid.slice(0, 12)}…</dd></>}
       </dl>
+      {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
       <div className="box"><span className="lbl">Your link</span><Address value={link} /></div>
       {swap.note && <p className="fine">{swap.note}</p>}
       {error && <p className="err-line">Status check failed, retrying: {error}</p>}

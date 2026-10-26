@@ -1,10 +1,11 @@
 //! Hosted swaps: the server holds a Zcash transit key between the two hops.
 //!
-//! One swap is one note in and one spend out. Hop one is a 1Click swap from
-//! the user's asset to ZEC, paid to a fresh Orchard-only address of the
-//! transit wallet, so it lands shielded with no transparent step. After a
-//! release delay the driver runs hop two: a 1Click swap from ZEC to the
-//! asset and address the user chose, paid from Ironwood notes.
+//! Hop one is a 1Click swap from the user's asset to ZEC, paid to a fresh
+//! Orchard-only address of the transit wallet, so it lands shielded with no
+//! transparent step. Hop two is one or more 1Click swaps from ZEC to the
+//! asset and address the user chose, paid from Ironwood notes: one part of
+//! the full amount in fast mode, standard-sized parts in quiet mode, each at
+//! its own release time.
 //!
 //! The server sees both ends of a hosted swap. The store keeps what a
 //! refund or a support question needs and nothing more; finished swaps are
@@ -36,6 +37,14 @@ pub const HOP2_FEE_RESERVE_ZAT: u64 = 20_000;
 pub const RELEASE_MEAN_BLOCKS: f64 = 144.0;
 pub const RELEASE_MAX_BLOCKS: u64 = 576;
 pub const SECONDS_PER_BLOCK: u64 = 75;
+
+/// Quiet mode cuts hop two into these sizes, largest first, so a payout
+/// does not match the landing by value. Zatoshis.
+pub const SPLIT_GRID_ZAT: &[u64] = &[50_000_000, 20_000_000, 10_000_000, 5_000_000, 2_000_000];
+/// Most parts one swap is cut into. What does not fit folds into the last part.
+pub const SPLIT_MAX_PARTS: usize = 6;
+/// Below this, nothing is cut: there is nothing to hide at that size.
+pub const SPLIT_MIN_ZAT: u64 = 2_000_000;
 
 /// How long hop one may wait for the deposit. 1Click's own deadline is
 /// shorter for most assets; this is the outer bound the driver enforces.
@@ -159,6 +168,118 @@ pub struct Swap {
     pub note: Option<String>,
     /// Last internal error, for the operator report. Never shown to users.
     pub last_error: Option<String>,
+    /// Zatoshis under the smallest part size that stay in the transit wallet.
+    pub dust_zat: Option<u64>,
+}
+
+/// One payout of hop two. A fast swap has one part for the full amount; a
+/// quiet swap has standard-sized parts, each with its own release time,
+/// quote, payout and route status.
+#[derive(Clone, Debug, Serialize)]
+pub struct Part {
+    pub swap_id: String,
+    pub idx: u32,
+    pub amount_zat: u64,
+    pub release_at_unix: u64,
+    pub deposit_address: Option<String>,
+    pub quote: Option<Value>,
+    /// Set just before the payout is handed to the wallet; see `Swap::hop2_paying_unix`.
+    pub paying_unix: Option<u64>,
+    pub txid: Option<String>,
+    pub state: PartState,
+    pub delivered_amount: Option<String>,
+    pub delivered_tx: Option<String>,
+    pub attempts: u32,
+    pub last_error: Option<String>,
+    pub updated_unix: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PartState {
+    /// Not paid yet. Pays at `release_at_unix`.
+    Waiting,
+    /// Paid to the route, which is filling it.
+    Routing,
+    /// Delivered.
+    Done,
+    /// Given up after the attempts, or a payout with an unknown result.
+    Failed,
+}
+
+impl PartState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PartState::Waiting => "waiting",
+            PartState::Routing => "routing",
+            PartState::Done => "done",
+            PartState::Failed => "failed",
+        }
+    }
+    pub fn parse(s: &str) -> Option<PartState> {
+        match s {
+            "waiting" => Some(PartState::Waiting),
+            "routing" => Some(PartState::Routing),
+            "done" => Some(PartState::Done),
+            "failed" => Some(PartState::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// What the page may see of one part.
+#[derive(Serialize)]
+pub struct PartView {
+    pub idx: u32,
+    pub amount_zat: u64,
+    pub state: PartState,
+    pub txid: Option<String>,
+    pub delivered_tx: Option<String>,
+}
+
+/// How a hop-two basis is cut: the part amounts and what stays behind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Split {
+    pub parts: Vec<u64>,
+    pub dust_zat: u64,
+}
+
+/// Cut a hop-two basis into parts. Each part pays its own network fee, so
+/// [`HOP2_FEE_RESERVE_ZAT`] is kept back per part. Without `quiet` the whole
+/// basis is one part. With it, parts come from [`SPLIT_GRID_ZAT`] largest
+/// first, at most [`SPLIT_MAX_PARTS`]; a basis below the smallest size plus
+/// one reserve is one exact part, since there is nothing to hide. What is
+/// left under the smallest size is dust and stays in the wallet; what is
+/// left above it, when the part cap is hit, folds into the last part.
+pub fn split_amount(basis: u64, quiet: bool) -> Split {
+    if !quiet || basis < SPLIT_MIN_ZAT + HOP2_FEE_RESERVE_ZAT {
+        return Split {
+            parts: vec![basis.saturating_sub(HOP2_FEE_RESERVE_ZAT)],
+            dust_zat: 0,
+        };
+    }
+    let mut parts = Vec::new();
+    let mut left = basis;
+    while parts.len() < SPLIT_MAX_PARTS {
+        let Some(&d) = SPLIT_GRID_ZAT
+            .iter()
+            .find(|&&d| d + HOP2_FEE_RESERVE_ZAT <= left)
+        else {
+            break;
+        };
+        parts.push(d);
+        left -= d + HOP2_FEE_RESERVE_ZAT;
+    }
+    if left >= SPLIT_MIN_ZAT + HOP2_FEE_RESERVE_ZAT {
+        if let Some(last) = parts.last_mut() {
+            *last += left;
+            left = 0;
+        }
+    }
+    Split {
+        parts,
+        dust_zat: left,
+    }
 }
 
 /// What the user's page may see.
@@ -183,10 +304,15 @@ pub struct SwapView {
     pub delivered_amount: Option<String>,
     pub delivered_tx: Option<String>,
     pub note: Option<String>,
+    /// Hop two parts: how many, how many delivered, and each one's state.
+    pub parts_total: u32,
+    pub parts_delivered: u32,
+    pub parts: Vec<PartView>,
+    pub dust_zat: Option<u64>,
 }
 
 impl Swap {
-    pub fn view(&self) -> SwapView {
+    pub fn view(&self, parts: &[Part]) -> SwapView {
         SwapView {
             id: self.id.clone(),
             state: self.state,
@@ -207,6 +333,19 @@ impl Swap {
             delivered_amount: self.delivered_amount.clone(),
             delivered_tx: self.delivered_tx.clone(),
             note: self.note.clone(),
+            parts_total: parts.len() as u32,
+            parts_delivered: parts.iter().filter(|p| p.state == PartState::Done).count() as u32,
+            parts: parts
+                .iter()
+                .map(|p| PartView {
+                    idx: p.idx,
+                    amount_zat: p.amount_zat,
+                    state: p.state,
+                    txid: p.txid.clone(),
+                    delivered_tx: p.delivered_tx.clone(),
+                })
+                .collect(),
+            dust_zat: self.dust_zat,
         }
     }
 }
@@ -323,19 +462,40 @@ CREATE TABLE IF NOT EXISTS swaps (
     attempts INTEGER NOT NULL DEFAULT 0,
     note TEXT,
     last_error TEXT,
-    hop2_paying_unix INTEGER
+    hop2_paying_unix INTEGER,
+    dust_zat INTEGER
 );
 CREATE INDEX IF NOT EXISTS swaps_state ON swaps(state);
 CREATE TABLE IF NOT EXISTS free_landings (
     landing_index INTEGER PRIMARY KEY
 );
+CREATE TABLE IF NOT EXISTS hop2_parts (
+    swap_id TEXT NOT NULL,
+    idx INTEGER NOT NULL,
+    amount_zat INTEGER NOT NULL,
+    release_at_unix INTEGER NOT NULL,
+    deposit_address TEXT,
+    quote TEXT,
+    paying_unix INTEGER,
+    txid TEXT,
+    state TEXT NOT NULL,
+    delivered_amount TEXT,
+    delivered_tx TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    updated_unix INTEGER NOT NULL,
+    PRIMARY KEY (swap_id, idx)
+);
+CREATE INDEX IF NOT EXISTS hop2_parts_state ON hop2_parts(state);
 ";
 
 /// Columns added after the first release. Each is added when missing, so an
 /// older database is brought up to date on open and a newer one is left alone.
-const ADDED_COLUMNS: &[(&str, &str)] = &[("hop2_paying_unix", "INTEGER")];
+const ADDED_COLUMNS: &[(&str, &str)] = &[("hop2_paying_unix", "INTEGER"), ("dust_zat", "INTEGER")];
 
-const COLUMNS: &str = "id, created_unix, updated_unix, mode, state, landing_index, landing_shielded, landing_transparent, origin_asset, destination_asset, destination_address, refund_to, slippage_bps, hop1_deposit_address, hop1_deposit_memo, hop1_amount_in, hop1_deadline_unix, hop1_quote, zec_received, release_at_unix, hop2_amount_in, hop2_deposit_address, hop2_quote, hop2_txid, delivered_amount, delivered_tx, attempts, note, last_error, hop2_paying_unix";
+const COLUMNS: &str = "id, created_unix, updated_unix, mode, state, landing_index, landing_shielded, landing_transparent, origin_asset, destination_asset, destination_address, refund_to, slippage_bps, hop1_deposit_address, hop1_deposit_memo, hop1_amount_in, hop1_deadline_unix, hop1_quote, zec_received, release_at_unix, hop2_amount_in, hop2_deposit_address, hop2_quote, hop2_txid, delivered_amount, delivered_tx, attempts, note, last_error, hop2_paying_unix, dust_zat";
+
+const PART_COLUMNS: &str = "swap_id, idx, amount_zat, release_at_unix, deposit_address, quote, paying_unix, txid, state, delivered_amount, delivered_tx, attempts, last_error, updated_unix";
 
 fn internal(e: impl std::fmt::Display) -> ApiError {
     ApiError::Internal(format!("swap store: {e}"))
@@ -348,9 +508,11 @@ impl Store {
             .map_err(internal)?;
         conn.execute_batch(SCHEMA).map_err(internal)?;
         migrate(&conn)?;
-        Ok(Self {
+        let store = Self {
             conn: Mutex::new(conn),
-        })
+        };
+        store.migrate_legacy_parts()?;
+        Ok(store)
     }
 
     #[cfg(test)]
@@ -374,7 +536,7 @@ impl Store {
 
     fn insert_row(conn: &Connection, s: &Swap) -> Result<(), ApiError> {
         conn.execute(
-            &format!("INSERT INTO swaps ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)"),
+            &format!("INSERT INTO swaps ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)"),
             params![
                 s.id,
                 s.created_unix as i64,
@@ -406,6 +568,7 @@ impl Store {
                 s.note,
                 s.last_error,
                 s.hop2_paying_unix.map(|v| v as i64),
+                s.dust_zat.map(|v| v as i64),
             ],
         )
         .map_err(internal)?;
@@ -474,7 +637,7 @@ impl Store {
     pub fn update(&self, s: &Swap) -> Result<(), ApiError> {
         let conn = self.lock();
         let n = conn.execute(
-            "UPDATE swaps SET updated_unix=?2, state=?3, zec_received=?4, release_at_unix=?5, hop2_amount_in=?6, hop2_deposit_address=?7, hop2_quote=?8, hop2_txid=?9, delivered_amount=?10, delivered_tx=?11, attempts=?12, note=?13, last_error=?14, hop2_paying_unix=?15 WHERE id=?1",
+            "UPDATE swaps SET updated_unix=?2, state=?3, zec_received=?4, release_at_unix=?5, hop2_amount_in=?6, hop2_deposit_address=?7, hop2_quote=?8, hop2_txid=?9, delivered_amount=?10, delivered_tx=?11, attempts=?12, note=?13, last_error=?14, hop2_paying_unix=?15, dust_zat=?16 WHERE id=?1",
             params![
                 s.id,
                 s.updated_unix as i64,
@@ -491,6 +654,7 @@ impl Store {
                 s.note,
                 s.last_error,
                 s.hop2_paying_unix.map(|v| v as i64),
+                s.dust_zat.map(|v| v as i64),
             ],
         )
         .map_err(internal)?;
@@ -498,6 +662,118 @@ impl Store {
             return Err(ApiError::NotFound);
         }
         Ok(())
+    }
+
+    /// Store the parts of a swap's hop two, all at once.
+    pub fn insert_parts(&self, parts: &[Part]) -> Result<(), ApiError> {
+        let mut conn = self.lock();
+        let tx = conn.transaction().map_err(internal)?;
+        for p in parts {
+            tx.execute(
+                &format!("INSERT INTO hop2_parts ({PART_COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)"),
+                params![
+                    p.swap_id,
+                    p.idx,
+                    p.amount_zat as i64,
+                    p.release_at_unix as i64,
+                    p.deposit_address,
+                    p.quote.as_ref().map(|q| q.to_string()),
+                    p.paying_unix.map(|v| v as i64),
+                    p.txid,
+                    p.state.as_str(),
+                    p.delivered_amount,
+                    p.delivered_tx,
+                    p.attempts,
+                    p.last_error,
+                    p.updated_unix as i64,
+                ],
+            )
+            .map_err(internal)?;
+        }
+        tx.commit().map_err(internal)
+    }
+
+    pub fn update_part(&self, p: &Part) -> Result<(), ApiError> {
+        let conn = self.lock();
+        let n = conn
+            .execute(
+                "UPDATE hop2_parts SET release_at_unix=?3, deposit_address=?4, quote=?5, paying_unix=?6, txid=?7, state=?8, delivered_amount=?9, delivered_tx=?10, attempts=?11, last_error=?12, updated_unix=?13 WHERE swap_id=?1 AND idx=?2",
+                params![
+                    p.swap_id,
+                    p.idx,
+                    p.release_at_unix as i64,
+                    p.deposit_address,
+                    p.quote.as_ref().map(|q| q.to_string()),
+                    p.paying_unix.map(|v| v as i64),
+                    p.txid,
+                    p.state.as_str(),
+                    p.delivered_amount,
+                    p.delivered_tx,
+                    p.attempts,
+                    p.last_error,
+                    p.updated_unix as i64,
+                ],
+            )
+            .map_err(internal)?;
+        if n == 0 {
+            return Err(ApiError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// The parts of one swap, in order.
+    pub fn parts_of(&self, swap_id: &str) -> Result<Vec<Part>, ApiError> {
+        let conn = self.lock();
+        let mut st = conn
+            .prepare(&format!(
+                "SELECT {PART_COLUMNS} FROM hop2_parts WHERE swap_id=?1 ORDER BY idx"
+            ))
+            .map_err(internal)?;
+        let rows = st
+            .query_map(params![swap_id], row_to_part)
+            .map_err(internal)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(internal)
+    }
+
+    /// Swaps from before the parts table that are still in flight get one
+    /// part made from their old hop-two columns, so there is one code path.
+    pub fn migrate_legacy_parts(&self) -> Result<usize, ApiError> {
+        let swaps = self.open_swaps()?;
+        let mut n = 0;
+        for s in swaps {
+            if !matches!(s.state, State::InPool | State::RoutingOut) {
+                continue;
+            }
+            let Some(amount) = s.hop2_amount_in else {
+                continue;
+            };
+            if !self.parts_of(&s.id)?.is_empty() {
+                continue;
+            }
+            let part = Part {
+                swap_id: s.id.clone(),
+                idx: 0,
+                amount_zat: amount,
+                release_at_unix: s.release_at_unix.unwrap_or(s.updated_unix),
+                deposit_address: s.hop2_deposit_address.clone(),
+                quote: s.hop2_quote.clone(),
+                paying_unix: s.hop2_paying_unix,
+                txid: s.hop2_txid.clone(),
+                state: if s.state == State::RoutingOut {
+                    PartState::Routing
+                } else {
+                    PartState::Waiting
+                },
+                delivered_amount: None,
+                delivered_tx: None,
+                attempts: s.attempts,
+                last_error: None,
+                updated_unix: s.updated_unix,
+            };
+            self.insert_parts(&[part])?;
+            n += 1;
+        }
+        Ok(n)
     }
 
     pub fn get(&self, id: &str) -> Result<Option<Swap>, ApiError> {
@@ -546,18 +822,25 @@ impl Store {
     pub fn prune(&self, now: u64) -> Result<usize, ApiError> {
         let conn = self.lock();
         let cutoff = now.saturating_sub(RETENTION_SECS) as i64;
+        let n = conn
+            .execute(
+                "DELETE FROM swaps WHERE state IN ('done','refunded','expired') AND updated_unix < ?1",
+                params![cutoff],
+            )
+            .map_err(internal)?;
         conn.execute(
-            "DELETE FROM swaps WHERE state IN ('done','refunded','expired') AND updated_unix < ?1",
-            params![cutoff],
+            "DELETE FROM hop2_parts WHERE swap_id NOT IN (SELECT id FROM swaps)",
+            [],
         )
-        .map_err(internal)
+        .map_err(internal)?;
+        Ok(n)
     }
 
     /// Sum of ZEC the wallet must still pay out, in zatoshis.
     pub fn committed_zat(&self) -> Result<u64, ApiError> {
         let conn = self.lock();
         conn.query_row(
-            "SELECT COALESCE(SUM(hop2_amount_in), 0) FROM swaps WHERE state='in_pool' AND hop2_amount_in IS NOT NULL",
+            "SELECT COALESCE(SUM(p.amount_zat), 0) FROM hop2_parts p JOIN swaps s ON s.id = p.swap_id WHERE p.state='waiting' AND s.state IN ('in_pool','routing_out')",
             [],
             |r| r.get::<_, i64>(0),
         )
@@ -612,6 +895,38 @@ fn row_to_swap(r: &rusqlite::Row<'_>) -> rusqlite::Result<Swap> {
         note: r.get(27)?,
         last_error: r.get(28)?,
         hop2_paying_unix: r.get::<_, Option<i64>>(29)?.map(|v| v as u64),
+        dust_zat: r.get::<_, Option<i64>>(30)?.map(|v| v as u64),
+    })
+}
+
+fn row_to_part(r: &rusqlite::Row<'_>) -> rusqlite::Result<Part> {
+    let bad = |what: &str| {
+        rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::other(format!("bad {what}"))),
+        )
+    };
+    let quote: Option<String> = r.get(5)?;
+    let state: String = r.get(8)?;
+    Ok(Part {
+        swap_id: r.get(0)?,
+        idx: r.get(1)?,
+        amount_zat: r.get::<_, i64>(2)? as u64,
+        release_at_unix: r.get::<_, i64>(3)? as u64,
+        deposit_address: r.get(4)?,
+        quote: match quote {
+            Some(q) => Some(serde_json::from_str(&q).map_err(|_| bad("quote"))?),
+            None => None,
+        },
+        paying_unix: r.get::<_, Option<i64>>(6)?.map(|v| v as u64),
+        txid: r.get(7)?,
+        state: PartState::parse(&state).ok_or_else(|| bad("part state"))?,
+        delivered_amount: r.get(9)?,
+        delivered_tx: r.get(10)?,
+        attempts: r.get(11)?,
+        last_error: r.get(12)?,
+        updated_unix: r.get::<_, i64>(13)? as u64,
     })
 }
 
@@ -704,7 +1019,141 @@ mod tests {
             note: None,
             last_error: None,
             hop2_paying_unix: None,
+            dust_zat: None,
         }
+    }
+
+    #[test]
+    fn split_cuts_quiet_amounts_into_standard_parts() {
+        let r = HOP2_FEE_RESERVE_ZAT;
+        // fast: one part, the basis minus one reserve
+        assert_eq!(
+            split_amount(37_000_000, false),
+            Split {
+                parts: vec![37_000_000 - r],
+                dust_zat: 0
+            }
+        );
+        // below the smallest size: one exact part, nothing to hide
+        assert_eq!(
+            split_amount(1_500_000, true),
+            Split {
+                parts: vec![1_500_000 - r],
+                dust_zat: 0
+            }
+        );
+        // exactly on the grid plus its reserve: one part, no dust
+        assert_eq!(
+            split_amount(20_000_000 + r, true),
+            Split {
+                parts: vec![20_000_000],
+                dust_zat: 0
+            }
+        );
+        // 0.37 ZEC: 0.2, 0.1 and 0.05; 0.02 plus its reserve no longer fits, the rest is dust
+        let s = split_amount(37_000_000, true);
+        assert_eq!(s.parts, vec![20_000_000, 10_000_000, 5_000_000]);
+        assert_eq!(s.dust_zat, 37_000_000 - 35_000_000 - 3 * r);
+        assert!(s.dust_zat < SPLIT_MIN_ZAT + r);
+        // the cap on parts: what does not fit folds into the last part
+        let s = split_amount(1_000_000_000, true);
+        assert_eq!(s.parts.len(), SPLIT_MAX_PARTS);
+        assert_eq!(
+            s.parts.iter().sum::<u64>() + SPLIT_MAX_PARTS as u64 * r,
+            1_000_000_000
+        );
+        assert_eq!(s.dust_zat, 0);
+        // every part pays its reserve: parts plus reserves plus dust is the basis
+        for basis in [2_020_000u64, 9_999_999, 55_555_555, 99_980_000, 100_000_000] {
+            let s = split_amount(basis, true);
+            assert_eq!(
+                s.parts.iter().sum::<u64>() + s.parts.len() as u64 * r + s.dust_zat,
+                basis
+            );
+            assert!(s.dust_zat < SPLIT_MIN_ZAT + r);
+        }
+    }
+
+    fn part(swap_id: &str, idx: u32, amount: u64, state: PartState) -> Part {
+        Part {
+            swap_id: swap_id.into(),
+            idx,
+            amount_zat: amount,
+            release_at_unix: 2_000,
+            deposit_address: None,
+            quote: None,
+            paying_unix: None,
+            txid: None,
+            state,
+            delivered_amount: None,
+            delivered_tx: None,
+            attempts: 0,
+            last_error: None,
+            updated_unix: 1_000,
+        }
+    }
+
+    #[test]
+    fn committed_sums_unpaid_parts_of_open_swaps() {
+        let store = Store::open_in_memory().unwrap();
+        let mut a = sample();
+        a.state = State::InPool;
+        store.insert(&a).unwrap();
+        let mut b = sample();
+        b.state = State::RoutingOut;
+        store.insert(&b).unwrap();
+        let mut c = sample();
+        c.state = State::Done;
+        store.insert(&c).unwrap();
+        store
+            .insert_parts(&[
+                part(&a.id, 0, 20_000_000, PartState::Waiting),
+                part(&a.id, 1, 5_000_000, PartState::Waiting),
+                part(&b.id, 0, 10_000_000, PartState::Routing),
+                part(&b.id, 1, 2_000_000, PartState::Waiting),
+                part(&c.id, 0, 50_000_000, PartState::Waiting),
+            ])
+            .unwrap();
+        assert_eq!(store.committed_zat().unwrap(), 27_000_000);
+        let mut p = store.parts_of(&a.id).unwrap().remove(0);
+        p.state = PartState::Routing;
+        p.txid = Some("t".into());
+        store.update_part(&p).unwrap();
+        assert_eq!(store.committed_zat().unwrap(), 7_000_000);
+        let view = a.view(&store.parts_of(&a.id).unwrap());
+        assert_eq!(view.parts_total, 2);
+        assert_eq!(view.parts_delivered, 0);
+    }
+
+    #[test]
+    fn an_old_in_pool_row_gets_one_part() {
+        let store = Store::open_in_memory().unwrap();
+        let mut s = sample();
+        s.state = State::InPool;
+        s.hop2_amount_in = Some(980_000);
+        s.release_at_unix = Some(9_000);
+        s.attempts = 2;
+        store.insert(&s).unwrap();
+        let mut r = sample();
+        r.state = State::RoutingOut;
+        r.hop2_amount_in = Some(500_000);
+        r.hop2_deposit_address = Some("t1route".into());
+        r.hop2_txid = Some("abc".into());
+        r.hop2_paying_unix = Some(8_000);
+        store.insert(&r).unwrap();
+        assert_eq!(store.migrate_legacy_parts().unwrap(), 2);
+        assert_eq!(store.migrate_legacy_parts().unwrap(), 0);
+        let p = store.parts_of(&s.id).unwrap();
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].amount_zat, 980_000);
+        assert_eq!(p[0].release_at_unix, 9_000);
+        assert_eq!(p[0].attempts, 2);
+        assert_eq!(p[0].state, PartState::Waiting);
+        let p = store.parts_of(&r.id).unwrap();
+        assert_eq!(p[0].state, PartState::Routing);
+        assert_eq!(p[0].txid.as_deref(), Some("abc"));
+        assert_eq!(p[0].deposit_address.as_deref(), Some("t1route"));
+        assert_eq!(store.committed_zat().unwrap(), 980_000);
     }
 
     #[test]
@@ -738,12 +1187,12 @@ mod tests {
         migrate(&conn).unwrap();
         let n: u32 = conn
             .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('swaps') WHERE name='hop2_paying_unix'",
+                "SELECT COUNT(*) FROM pragma_table_info('swaps') WHERE name IN ('hop2_paying_unix','dust_zat')",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(n, 1);
+        assert_eq!(n, 2);
     }
 
     #[test]
@@ -781,6 +1230,9 @@ mod tests {
         s.hop2_amount_in = Some(980_000);
         s.release_at_unix = Some(9_000);
         store.update(&s).unwrap();
+        // committed comes from the parts; an old row gets its one part on open
+        assert_eq!(store.committed_zat().unwrap(), 0);
+        assert_eq!(store.migrate_legacy_parts().unwrap(), 1);
         assert_eq!(store.committed_zat().unwrap(), 980_000);
         s.state = State::Done;
         s.updated_unix = 10;
