@@ -43,6 +43,7 @@ pub struct Landing {
 #[derive(Serialize)]
 pub struct Balance {
     pub ironwood_spendable: u64,
+    pub ironwood_notes: u64,
     pub ironwood_total: u64,
     pub unshielded: u64,
     pub chain_tip: Option<u32>,
@@ -53,6 +54,9 @@ pub struct Balance {
 pub struct Payout {
     pub txid: String,
     pub fee: u64,
+    /// Set when the transaction was built but the broadcast failed. It may
+    /// still be on the chain; the page keeps the txid and watches.
+    pub broadcast_error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -180,6 +184,7 @@ impl WebWallet {
         let b = self.wallet.balance().map_err(js_err)?;
         let out = Balance {
             ironwood_spendable: b.ironwood_spendable,
+            ironwood_notes: b.ironwood_notes,
             ironwood_total: b.ironwood_total,
             unshielded: b.unshielded,
             chain_tip: b.chain_tip,
@@ -216,6 +221,7 @@ impl WebWallet {
         let out = Payout {
             txid: p.txid.to_string(),
             fee: p.fee.into_u64(),
+            broadcast_error: p.broadcast_error,
         };
         serde_wasm_bindgen::to_value(&out).map_err(js_err)
     }

@@ -77,8 +77,8 @@ export function App() {
   });
 
   useEffect(() => {
-    client
-      .getTokens()
+    // with an API the token list comes from it, so the route sees no visitor before a swap
+    (api ? api.tokens() : client.getTokens())
       .then(setTokens)
       .catch((e: unknown) => setTokensError(e instanceof Error ? e.message : String(e)));
     if (api) {

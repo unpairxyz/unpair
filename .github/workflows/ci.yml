@@ -1,21 +1,65 @@
+# Checks on pull requests and on develop. Each job runs only when its part of
+# the tree changed, so a copy change does not build the wallet. main is not
+# checked again here: it only receives merges from develop, and its own
+# workflows build what gets deployed.
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
+  push:
+    branches: [develop]
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      rust: ${{ steps.filter.outputs.rust }}
+      wasm: ${{ steps.filter.outputs.wasm }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: filter
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
+        with:
+          filters: |
+            web:
+              - "apps/web/**"
+              - "packages/sdk/**"
+              - "packages/client/**"
+              - "package.json"
+              - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+            rust:
+              - "apps/api/**"
+              - "packages/zcash/**"
+              - "packages/zcash-web/**"
+              - "vendor/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+            wasm:
+              - "packages/zcash/**"
+              - "packages/zcash-web/**"
+              - "vendor/**"
+              - "Cargo.lock"
+              - "apps/web/scripts/build-wasm.sh"
+
   web:
     name: SDK, client and web page
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -26,11 +70,15 @@ jobs:
 
   rust:
     name: API and Zcash crate
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
       - run: cargo fmt --all --check
@@ -38,20 +86,30 @@ jobs:
 
   wasm:
     name: Browser wallet
+    needs: changes
+    if: needs.changes.outputs.wasm == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ". -> target"
           key: wasm
       - run: sudo apt-get update && sudo apt-get install -y clang lld
-      - run: curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+      - name: wasm-pack, a pinned release with its checksum
+        run: |
+          curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz
+          echo "c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539  wasm-pack.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin"
+          tar xzf wasm-pack.tar.gz --strip-components=1 -C "$HOME/.local/bin" --wildcards '*/wasm-pack'
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/wasm-pack" --version
       - run: CC_wasm32_unknown_unknown=clang apps/web/scripts/build-wasm.sh release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-wallet
           path: apps/web/public/wasm

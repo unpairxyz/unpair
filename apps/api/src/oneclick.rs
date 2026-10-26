@@ -91,6 +91,23 @@ impl OneClick {
         Ok(json)
     }
 
+    /// The route's token list, as `/v0/tokens` returns it.
+    pub async fn tokens(&self) -> Result<Value, String> {
+        let resp = self
+            .auth(self.http.get(format!("{}/v0/tokens", self.base)))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("tokens {}", resp.status()));
+        }
+        let v: Value = resp.json().await.map_err(|e| e.to_string())?;
+        if !v.is_array() {
+            return Err("tokens: not a list".into());
+        }
+        Ok(v)
+    }
+
     /// Tell 1Click about a deposit transaction so it starts the swap at once.
     pub async fn submit_deposit(
         &self,
