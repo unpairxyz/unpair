@@ -91,7 +91,7 @@ It fits a 1 vCPU, 1 GB box. Put Cloudflare or nginx in front for TLS and the cou
 
 ## Screening adapters
 
-`UNPAIR_SCREENING=http` posts `{address, chain}` to a URL and expects `{"allowed": bool, "reason": string}`. Provider-specific shapes from TRM or Chainalysis are mapped by a small adapter that lives with the deployment config, not in this repo. The denylist mode needs no provider and is enough for the private alpha.
+`UNPAIR_SCREENING=http` posts `{address, chain}` to a URL and expects `{"allowed": bool, "reason": string}`. Provider-specific shapes from TRM or Chainalysis are mapped by a small adapter that lives with the deployment config, not in this repo. The denylist mode needs no provider and is what the public instance runs today.
 
 ## Test
 
