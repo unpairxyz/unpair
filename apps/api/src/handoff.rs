@@ -15,9 +15,12 @@ pub const MAX_TTL_SECS: u64 = 24 * 3600;
 pub const MAX_ENTRIES: usize = 10_000;
 /// Largest body accepted, in bytes.
 pub const MAX_BYTES: usize = 16 * 1024;
+/// Most bytes held at once, over every parked quote.
+pub const MAX_TOTAL_BYTES: usize = 4 * 1024 * 1024;
 
 struct Entry {
     body: Value,
+    bytes: usize,
     expires_unix: u64,
 }
 
@@ -35,17 +38,26 @@ pub enum PutError {
 impl Handoff {
     /// Park a quote. Returns the id and when it expires.
     pub fn put(&self, body: Value, now: u64, ttl_secs: u64) -> Result<(String, u64), PutError> {
-        if body.to_string().len() > MAX_BYTES {
+        let bytes = body.to_string().len();
+        if bytes > MAX_BYTES {
             return Err(PutError::TooLarge);
         }
         let mut map = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         map.retain(|_, e| e.expires_unix > now);
-        if map.len() >= MAX_ENTRIES {
+        let held: usize = map.values().map(|e| e.bytes).sum();
+        if map.len() >= MAX_ENTRIES || held + bytes > MAX_TOTAL_BYTES {
             return Err(PutError::Full);
         }
         let id = hex::encode(rand::rng().random::<[u8; 16]>());
-        let expires_unix = now + ttl_secs.clamp(60, MAX_TTL_SECS);
-        map.insert(id.clone(), Entry { body, expires_unix });
+        let expires_unix = now.saturating_add(ttl_secs.clamp(60, MAX_TTL_SECS));
+        map.insert(
+            id.clone(),
+            Entry {
+                body,
+                bytes,
+                expires_unix,
+            },
+        );
         Ok((id, expires_unix))
     }
 
@@ -80,5 +92,18 @@ mod tests {
         assert_eq!(exp, MAX_TTL_SECS);
         let big = json!({ "x": "y".repeat(MAX_BYTES) });
         assert_eq!(h.put(big, 0, 60).unwrap_err(), PutError::TooLarge);
+    }
+
+    #[test]
+    fn total_bytes_are_capped() {
+        let h = Handoff::default();
+        let body = json!({ "x": "y".repeat(MAX_BYTES - 16) });
+        let fits = MAX_TOTAL_BYTES / body.to_string().len();
+        for _ in 0..fits {
+            h.put(body.clone(), 0, 60).unwrap();
+        }
+        assert_eq!(h.put(body, 0, 60).unwrap_err(), PutError::Full);
+        // expired entries free their bytes
+        assert!(h.put(json!({"q": 1}), MAX_TTL_SECS + 1, 60).is_ok());
     }
 }

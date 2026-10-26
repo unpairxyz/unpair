@@ -7,7 +7,7 @@
  * wallet in a new tab and finishes from the pool.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ZEC_DECIMALS, formatUnits, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
+import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
 import { api, client, config, describeError, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { Address, DoneBurst, GoButton, Mascot, StatusStrip, VerifyStrip, type HeroStage } from "./ui";
@@ -17,17 +17,13 @@ import type { Balance, Landing, Upgrade } from "./wallet/types";
 
 /** Kept back from the spendable balance for the hop-two fee. ZIP 317 asks 15,000 zats for one note in and one output out. */
 const HOP2_FEE_RESERVE_ZAT = 20_000n;
-/** Quiet mode waits a random time in this window before hop two. */
-const QUIET_WAIT_MIN_MS = 30 * 60_000;
-const QUIET_WAIT_MAX_MS = 12 * 3_600_000;
 const SYNC_EVERY_MS = 30_000;
 
 type Phase = "recover" | "deposit" | "pool" | "out" | "done";
 
+/** Quiet mode waits a random time before hop two: exponential, mean about 3 h, capped at 12 h, the same draw as the server. */
 function randomWaitMs(): number {
-  const r = new Uint32Array(1);
-  crypto.getRandomValues(r);
-  return QUIET_WAIT_MIN_MS + Math.floor(((r[0] ?? 0) / 2 ** 32) * (QUIET_WAIT_MAX_MS - QUIET_WAIT_MIN_MS));
+  return scheduleRelease(new Date()).delayMs;
 }
 
 type Props = {
@@ -51,7 +47,10 @@ export function BrowserSwap(props: Props) {
   const plan: RecoveryPlan | null = fresh
     ? { destinationAsset: props.outToken.assetId, recipient: props.dest, mode: props.mode, slippageBps: props.slippage }
     : (props.recovery.plan ?? null);
-  const outToken = useMemo(() => (plan ? (tokens.find((t) => t.assetId === plan.destinationAsset) ?? null) : null), [tokens, plan]);
+  // the plan is rebuilt on every render, so effects read it through a ref and never re-run because of it
+  const planRef = useRef(plan);
+  planRef.current = plan;
+  const outToken = useMemo(() => (plan ? (tokens.find((t) => t.assetId === plan.destinationAsset) ?? null) : null), [tokens, plan?.destinationAsset]);
   const zec = useMemo(() => tokens.find((t) => t.blockchain === "zec" && t.symbol === "ZEC") ?? null, [tokens]);
 
   const [phase, setPhase] = useState<Phase>(fresh ? "recover" : "pool");
@@ -65,6 +64,16 @@ export function BrowserSwap(props: Props) {
   const [hop2Final, setHop2Final] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   const outStarted = useRef(false);
+  // bumped by the retry button, the only thing that may start hop two again after a failure
+  const [attempt, setAttempt] = useState(0);
+
+  // leaving the tab while coins are in it loses them unless the recovery file was saved
+  useEffect(() => {
+    if (phase !== "pool" && phase !== "out") return;
+    const guard = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [phase]);
 
   useEffect(() => {
     const map: Record<Phase, HeroStage> = { recover: "deposit", deposit: "deposit", pool: "pool", out: "out", done: "done" };
@@ -138,7 +147,7 @@ export function BrowserSwap(props: Props) {
     }
     const t = window.setTimeout(() => setPhase("out"), Math.min(left, 2_147_000_000));
     return () => window.clearTimeout(t);
-  }, [phase, canSend, plan, releaseAt]);
+  }, [phase, canSend, plan?.mode, releaseAt]);
 
   // Hop two: quote ZEC to the asset the user chose, pay it from Ironwood, broadcast.
   useEffect(() => {
@@ -146,9 +155,17 @@ export function BrowserSwap(props: Props) {
     outStarted.current = true;
     const run = async () => {
       try {
+        const plan = planRef.current;
         if (!plan || !outToken || !zec) throw new Error("The swap has no second hop. The recovery file names no destination.");
-        const amount = spendable - HOP2_FEE_RESERVE_ZAT;
+        // a fresh look at the balance: a retry after a failed or refunded hop two must not quote a stale amount
+        setWorking("Checking the balance.");
+        await wallet.sync();
+        const b = await wallet.balance();
+        setBalance(b);
+        let amount = BigInt(b.ironwood_spendable) - HOP2_FEE_RESERVE_ZAT;
         if (amount <= 0n) throw new Error("Nothing to send.");
+        // quiet mode sends an amount cut to two digits, so the two hops do not match to the unit; the rest, under a tenth, stays in this wallet
+        if (plan.mode === "quiet") amount = roundDownSignificant(amount, 2).amount;
         setWorking("Asking the route for a quote.");
         const landing = await wallet.nextLanding();
         const request: QuoteInput = {
@@ -180,7 +197,7 @@ export function BrowserSwap(props: Props) {
       }
     };
     void run();
-  }, [phase, plan, outToken, zec, spendable, wallet]);
+  }, [phase, attempt, outToken, zec, wallet]);
 
   const hop2Address = hop2?.txid ? (hop2.quote.quote.depositAddress ?? "") : "";
   const hop2Memo = hop2?.quote.quote.depositMemo;
@@ -226,6 +243,7 @@ export function BrowserSwap(props: Props) {
     setHop2Final(false);
     outStarted.current = false;
     setPhase("out");
+    setAttempt((a) => a + 1);
   }
 
   const startOver = <p className="fine"><button type="button" className="link" onClick={onDone}>Start over</button></p>;
@@ -314,6 +332,7 @@ export function BrowserSwap(props: Props) {
         <div className="wtitle"><b>{phase === "out" ? "HOP TWO" : "IN THE POOL"}</b>{balance?.scanned_to ? <span className="code">block {balance.scanned_to}</span> : null}</div>
         <StatusStrip current={phase === "out" ? 3 : 2} texts={{ 0: "Deposit seen.", 1: "Swapped into ZEC.", 2: poolText, 3: phase === "out" ? poolText : `The tab pays ${outToken?.symbol ?? "the asset"} to your address.` }} />
         {hop2?.txid && <p className="fine">Zcash transaction <span className="code">{hop2.txid.slice(0, 12)}…</span></p>}
+        {hop2?.txid && plan?.mode === "quiet" && <p className="fine">Quiet mode sent a rounded amount. The small rest stays in this wallet, and the recovery file can spend it.</p>}
         {error && <p className="err-line">{error}</p>}
         {phase === "out" && error && <GoButton onClick={retryOut}>TRY HOP TWO AGAIN</GoButton>}
         {phase === "pool" && release && canSend && <GoButton onClick={() => setPhase("out")}>SEND NOW INSTEAD</GoButton>}

@@ -79,7 +79,7 @@ later. That makes you a custodian between the hops. Before turning it on:
 
 ## 4. The gRPC-web proxy, for the in-browser wallet
 
-The "This browser" option runs a Zcash wallet inside the page. Browsers
+The one-time wallet runs a Zcash wallet inside the page. Browsers
 cannot speak gRPC, so the page reaches lightwalletd through a gRPC-web proxy.
 Any gRPC-web capable proxy works; Envoy's `grpc_web` filter is the common
 one. `apps/api/deploy/envoy-lwd.yaml` is a working Envoy configuration:
