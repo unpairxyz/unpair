@@ -236,8 +236,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const [busyText, setBusyText] = useState("GETTING A QUOTE");
   // the two-hop keepers keep a network fee reserve back from the ZEC before hop two; it comes off the estimate too
   const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(hop2FeeReserveZat(1), ZEC_DECIMALS)) * zec.price) / b.price : 0;
-  const out = a && b && b.price > 0 ? Math.max(0, (sendNum * a.price * (1 - feeFraction) ** hops) / b.price - reserveOut) : 0;
-  const minOut = out * (1 - slippage / 10_000);
+  const priceOut = a && b && b.price > 0 ? Math.max(0, (sendNum * a.price * (1 - feeFraction) ** hops) / b.price - reserveOut) : 0;
   const small = a !== null && sendNum > 0 && sendNum * a.price < 20;
   // the same token in and out is fine through the pool: two hops, and only the link is gone
   const same = sameToken(a, b);
@@ -257,6 +256,28 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const zecVerdict = zecCheck ? describeCheck(zecCheck) : null;
   const destCheck = custody === "own" ? (zecVerdict ? { ok: zecVerdict.ok, text: zecVerdict.text } : null) : b && dest.trim() ? checkAddressForChain(dest, b.blockchain) : null;
   const refundCheck = a && refund.trim() ? checkAddressForChain(refund, a.blockchain) : null;
+  // Once the form is complete, the route itself says what you get: the same dry quotes the deposit screen shows.
+  // Until then, and when the route does not answer, the price estimate stands.
+  const estimateKey = a && b && plan && destCheck?.ok && refundCheck?.ok && api ? [custody, mode, a.assetId, b.assetId, plan.send.toString(), dest.trim(), refund.trim(), slippage].join("|") : null;
+  const [live, setLive] = useState<{ key: string; out: number } | null>(null);
+  useEffect(() => {
+    if (!estimateKey || !api || !a || !b || !plan) return;
+    const key = estimateKey;
+    const ask = api;
+    const t = setTimeout(() => {
+      ask
+        .estimate({ mode, originAsset: a.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, recipient: dest.trim(), refundTo: refund.trim(), slippageTolerance: slippage, ...(custody !== "own" ? { custody } : {}) })
+        .then((e) => {
+          const n = Number(e.estimate_out);
+          if (Number.isFinite(n) && n > 0) setLive({ key, out: n });
+        })
+        .catch(() => {});
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estimateKey]);
+  const out = live && live.key === estimateKey ? live.out : priceOut;
+  const minOut = out * (1 - slippage / 10_000);
 
   let label = "GET DEPOSIT ADDRESS";
   if (!a || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
@@ -861,7 +882,7 @@ function HostedTracking({ id, first, signed, tokens, verified, second = false, o
           <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={verified ? "Signed by Unpair" : "Quote from the server"} {...(api ? { onPhone: () => setPhone(true) } : {})} />
         )}
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{amountIn}</div></div>
-        {swap.estimate_out && <YouGet value={`${swap.estimate_out} ${outToken?.symbol ?? ""}`} />}
+        {swap.estimate_out && <YouGet value={`${fmt(Number(swap.estimate_out))} ${outToken?.symbol ?? ""}`} />}
         <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} qr={!second} /></div>
         {swap.deposit_memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{swap.deposit_memo}</div></div>}
         <p className="fine">Pay by {new Date(swap.deposit_deadline_unix * 1000).toLocaleString()}.</p>
@@ -888,7 +909,7 @@ function HostedTracking({ id, first, signed, tokens, verified, second = false, o
       <Facts rows={[
         ["Sent", amountIn, true],
         ["Receive", outLabel],
-        swap.estimate_out && !swap.delivered_amount && ["Get about", `${swap.estimate_out} ${outToken?.symbol ?? ""}`, true],
+        swap.estimate_out && !swap.delivered_amount && ["Get about", `${fmt(Number(swap.estimate_out))} ${outToken?.symbol ?? ""}`, true],
         ["To", short(swap.destination_address), true],
         swap.zec_received !== null && ["In the pool", `${formatUnits(BigInt(swap.zec_received), ZEC_DECIMALS)} ZEC`, true],
         swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total} delivered`, true],

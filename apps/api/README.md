@@ -17,6 +17,7 @@ A small Rust service. It does the parts a static page cannot:
 | GET | `/v1/tokens` | none | The route's token list, cached here for ten minutes and served stale when the route is down. `cache-control: public, max-age=300`. |
 | POST | `/v1/screen` | none | `{address, chain}` to `{allowed, reason}`. |
 | POST | `/v1/quote` | none | A quote request with only the fields the page sends (`dry, swapType, slippageTolerance, originAsset, depositType, destinationAsset, amount, refundTo, refundType, recipient, recipientType, deadline, depositMode?`); any other field is refused. Screens, forwards with the server's fee, returns `{quote, fee_recipient, fee_bps, signature, public_key_hex}`. |
+| POST | `/v1/estimate` | none | `{mode, originAsset, amount, destinationAsset, recipient, refundTo, slippageTolerance?, custody?}`: dry quotes of both hops, so the form shows the number the deposit screen will show. Returns `{zec_out, estimate_out}`. Nothing is created or screened. A destination other than ZEC needs the hosted wallet. |
 | GET | `/v1/status/{depositAddress}` | none | 1Click status, with optional `?depositMemo=`. |
 | POST | `/v1/hosted/swaps` | none | Start a hosted swap: `{mode, originAsset, amount, destinationAsset, recipient, refundTo, slippageTolerance?}`. Screens, takes a fresh shielded landing, quotes hop one to it, returns `{swap, quote}`. |
 | GET | `/v1/hosted/swaps/{id}` | the id | Progress of one hosted swap. The id is 16 random bytes; whoever has it sees the swap. |
@@ -35,7 +36,7 @@ Hop two goes out in parts. A fast swap has one part for the full amount. A quiet
 ### Rate limit
 
 `UNPAIR_RATE_LIMIT_PER_MIN` (default 20, 0 turns it off) bounds what one client
-address may ask per minute of `/v1/quote`, `/v1/hosted/swaps`, `/v1/screen` and
+address may ask per minute of `/v1/quote`, `/v1/estimate`, `/v1/hosted/swaps`, `/v1/screen` and
 `/v1/handoff`. The address is read from `cf-connecting-ip`, then
 `x-forwarded-for`; with neither header every caller shares one bucket. The
 answer over the limit is 429 with a plain message. Put a rate rule at the edge

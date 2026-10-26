@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
-import { api, client, config, describeError, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
+import { api, client, config, describeError, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { Address, DoneBurst, Facts, GoButton, Mascot, OUT_WAIT, POOL_WAIT, PhoneCheck, StatusStrip, VerifyStrip, YouGet, depositWait, short, useElapsed, useEndTime, type HeroStage } from "./ui";
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
@@ -346,7 +346,7 @@ export function BrowserSwap(props: Props) {
             {...(api && props.signed ? { onPhone: () => { setPhone(true); if (!parked && props.signed) void park(props.signed); } } : {})}
           />
           <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {props.token.symbol}</div></div>
-          {estimate && <YouGet value={`${estimate} ${outToken?.symbol ?? ""}`} />}
+          {estimate && <YouGet value={`${fmt(Number(estimate))} ${outToken?.symbol ?? ""}`} />}
           <div className="box"><span className="lbl">To this address, once</span><Address value={depositAddress} qr /></div>
           {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
           {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
