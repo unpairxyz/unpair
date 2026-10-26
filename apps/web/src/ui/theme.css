@@ -122,16 +122,16 @@ body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--ui);-web
 .kv{display:flex;justify-content:space-between;align-items:center;gap:10px}
 .big{font:700 26px var(--mono)}
 .chip{font:400 16px var(--sfx);letter-spacing:.06em;background:var(--spot);color:var(--ink);padding:2px 10px;border:2px solid var(--ink);transform:rotate(2deg)}
-.addrwrap{display:flex;gap:12px;align-items:flex-start}
-.addrwrap .qr{flex:0 0 112px;width:112px;height:112px}
+.addrwrap{display:flex;flex-direction:column;gap:10px;align-items:center}
+.addrwrap .qr{margin:4px 0 0;width:220px;height:220px}
 .addrwrap .qr svg{display:block;width:100%;height:100%;box-sizing:border-box}
-.addrtext{flex:1;min-width:0}
+.addrtext{width:100%;min-width:0}
 .addr{font:600 14px/1.6 var(--mono);word-break:break-all;color:var(--faint)}
 .addr b{color:var(--ink)}
 .addr span{margin-right:.45em}
 .addr span:last-of-type{margin-right:0}
 .copy{margin-top:8px}
-@media (max-width:480px){.addrwrap{flex-direction:column}.addrwrap .qr{flex-basis:auto;width:140px;height:140px}}
+@media (max-width:480px){.addrwrap .qr{width:200px;height:200px}}
 
 /* status: a four-panel strip */
 .koma{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
@@ -384,3 +384,16 @@ dialog h3{margin:0 0 8px;font:400 34px var(--sfx);letter-spacing:.05em}
 .info3 > .keepp{grid-column:1/-1}
 .three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 @media (max-width:760px){.three{grid-template-columns:1fr}}
+
+/* the quote check: one quiet line on the paying screen, large on the second device */
+.vstrip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0 10px;border-bottom:2px dashed var(--ink);font:700 13px var(--ui)}
+.vstrip canvas,.vmatch canvas,.vhero canvas{border-radius:50%;background:var(--ink);flex:none}
+.vstrip .vwho{flex:1;min-width:0}
+.vmatch{display:flex;align-items:center;justify-content:center;gap:12px;margin:12px 0 4px}
+.vmatch .code{font-size:20px}
+dialog .qr svg{width:240px;height:240px;max-width:100%}
+.vhero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:4px 0 14px;border-bottom:2px dashed var(--ink)}
+.vhero canvas{box-shadow:6px 6px 0 var(--spot)}
+.vcode{font:700 28px var(--mono);letter-spacing:.12em;margin-top:6px}
+.vok,.vwarn{margin:0;font:700 14px var(--ui)}
+.vwarn{color:var(--spot-text)}
