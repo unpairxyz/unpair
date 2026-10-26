@@ -65,7 +65,7 @@ export function parseRecovery(text: string, network: ZcashNetwork): Recovery {
 const LOAD_TIMEOUT_MS = 180_000;
 /** Reading the chain tip and the tree state from the wallet server. */
 const OPEN_TIMEOUT_MS = 60_000;
-export type OpenStep = "download" | "connect";
+type OpenStep = "download" | "connect";
 /** A short call that only reads the wallet. */
 const CALL_TIMEOUT_MS = 30_000;
 

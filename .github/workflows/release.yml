@@ -1,11 +1,9 @@
-# A tagged release: the API binary for Linux x86_64 and the web page, each
-# with its sha256, attached to a GitHub Release for the tag. Deploys take
-# their files from here, so what runs in production is what anyone can
-# download and hash.
-#
-# The page is built with this repository's variables, so the released dist is
-# the one the official origin serves and can be compared against it byte for
-# byte. A self-hoster sets their own variables in a fork, or builds locally.
+# A tagged release: the Build workflow's API binary and web page, each with
+# its sha256, attached to a GitHub Release for the tag. Deploys take their
+# files from here, so what runs in production is what anyone can download
+# and hash. The page is built with this repository's variables, so the
+# released dist is the one the official origin serves and can be compared
+# against it byte for byte.
 #
 # Cut a release with a signed tag on main:
 #   git tag -s v0.1.0 -m "v0.1.0" && git push origin v0.1.0
@@ -23,102 +21,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  api:
-    name: API binary
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          workspaces: ". -> target"
-          key: api-release
-      - run: cargo build -p unpair-api --release --locked
-      - run: |
-          mkdir -p out
-          cp target/release/unpair-api out/unpair-api-linux-x86_64
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-api
-          path: out
-          retention-days: 3
-
-  web:
-    name: Web page
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @unpair/sdk build && pnpm --filter @unpair/client build
-
-      - name: The browser wallet from the cache, when the Zcash crates did not change
-        id: wasm
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: apps/web/public/wasm
-          key: wasm-release-${{ hashFiles('packages/zcash/**', 'packages/zcash-web/**', 'vendor/**', 'Cargo.lock', 'apps/web/scripts/build-wasm.sh') }}
-      - if: steps.wasm.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-      - if: steps.wasm.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          workspaces: ". -> target"
-          key: wasm
-      - if: steps.wasm.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install -y clang lld
-      - if: steps.wasm.outputs.cache-hit != 'true'
-        name: wasm-pack, a pinned release with its checksum
-        run: |
-          curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz
-          echo "c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539  wasm-pack.tar.gz" | sha256sum -c -
-          mkdir -p "$HOME/.local/bin"
-          tar xzf wasm-pack.tar.gz --strip-components=1 -C "$HOME/.local/bin" --wildcards '*/wasm-pack'
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          "$HOME/.local/bin/wasm-pack" --version
-      - if: steps.wasm.outputs.cache-hit != 'true'
-        name: The browser wallet, into public/wasm
-        run: CC_wasm32_unknown_unknown=clang apps/web/scripts/build-wasm.sh release
-
-      - name: Token and chain icons, served from our own origin
-        continue-on-error: true
-        run: node apps/web/scripts/fetch-icons.mjs
-      - name: Build the page
-        env:
-          VITE_FEE_RECIPIENT: ${{ vars.VITE_FEE_RECIPIENT }}
-          VITE_FEE_BPS: ${{ vars.VITE_FEE_BPS }}
-          VITE_OFFICIAL_ORIGIN: ${{ vars.VITE_OFFICIAL_ORIGIN }}
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
-          VITE_API_PUBKEY: ${{ vars.VITE_API_PUBKEY }}
-          VITE_LWD_GRPC_WEB_URL: ${{ vars.VITE_LWD_GRPC_WEB_URL }}
-          VITE_ZCASH_NETWORK: ${{ vars.VITE_ZCASH_NETWORK }}
-          VITE_ONECLICK_JWT: ${{ secrets.VITE_ONECLICK_JWT }}
-          BASE_PATH: /
-        run: pnpm --filter @unpair/web build
-      - name: Pack dist with fixed timestamps and order, so the archive hash is stable
-        run: |
-          mkdir -p out
-          tar --sort=name --mtime='2000-01-01 00:00Z' --owner=0 --group=0 --numeric-owner \
-            -C apps/web -cf - dist | gzip -n > out/unpair-web.tar.gz
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release-web
-          path: out
-          retention-days: 3
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
 
   publish:
     name: GitHub Release
-    needs: [api, web]
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -126,10 +37,12 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: in
-      - name: Hashes
+      - name: Files and hashes. The page archive has fixed timestamps and order, so its hash is stable.
         run: |
           mkdir -p out
-          cp in/release-api/unpair-api-linux-x86_64 in/release-web/unpair-web.tar.gz out/
+          cp in/unpair-api-linux-x86_64/unpair-api out/unpair-api-linux-x86_64
+          tar --sort=name --mtime='2000-01-01 00:00Z' --owner=0 --group=0 --numeric-owner \
+            -C in --transform 's,^unpair-web,dist,' -cf - unpair-web | gzip -n > out/unpair-web.tar.gz
           cd out && sha256sum unpair-api-linux-x86_64 unpair-web.tar.gz | tee SHA256SUMS
       - name: Release
         env:

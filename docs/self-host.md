@@ -19,11 +19,10 @@ fee to yourself, or `VITE_FEE_BPS=0` for none. Without an API the page talks to
 1Click from the browser, with no screening and no server path. The one-time
 wallet also needs the proxy in section 3.
 
-`.github/workflows/web.yml` builds the page and publishes it to GitHub Pages on
-every push to `main`. Turn on Pages for the repository with "GitHub Actions" as
-the source, set the repository variables listed at the top of that file, and
-point your domain's DNS at GitHub Pages. Set `BASE_PATH=/name/` when the page
-is served under a sub-path instead of a domain of its own.
+`.github/workflows/build.yml` builds the page with the browser wallet and the
+icons, from the repository variables listed at the top of that file, and
+keeps it as a run artifact; a tag turns the same build into a release with
+hashes. Serve the files from any static host.
 
 ## 2. The API
 
@@ -32,8 +31,8 @@ can receive funds; with one it runs the hosted swap path described below.
 See `apps/api/README.md`. A 1 vCPU, 1 GB VPS is enough without hosted swaps;
 with them, 2 GB. Build off the box. Every tagged release on GitHub carries the
 Linux x86_64 binary and the page with their sha256 sums; between releases the
-"API binary" workflow keeps a build of main as an artifact for seven days. Or
-build it yourself:
+Build workflow, run by hand, keeps a build of any branch as an artifact for
+seven days. Or build it yourself:
 
 ```sh
 cargo build -p unpair-api --release

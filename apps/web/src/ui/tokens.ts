@@ -28,13 +28,13 @@ export const isNative = (t: TokenInfo): boolean => NATIVE[t.symbol] === t.blockc
 
 // 1Click gives no ranking, so popular symbols and chains come first by hand.
 const POPULAR_SYMBOLS = ["USDC", "USDT", "ETH", "BTC", "SOL", "ZEC", "BNB", "TRX", "WBTC", "DAI", "XRP", "DOGE", "TON", "NEAR", "SUI", "LTC", "ADA"];
-export const POPULAR_CHAINS = ["eth", "base", "arb", "sol", "btc", "zec", "bsc", "tron", "near"];
+const POPULAR_CHAINS = ["eth", "base", "arb", "sol", "btc", "zec", "bsc", "tron", "near"];
 const rankOf = (list: string[], v: string): number => {
   const i = list.indexOf(v);
   return i < 0 ? list.length : i;
 };
 
-export function sortTokens(tokens: TokenInfo[]): TokenInfo[] {
+function sortTokens(tokens: TokenInfo[]): TokenInfo[] {
   return [...tokens].sort(
     (a, b) =>
       rankOf(POPULAR_SYMBOLS, a.symbol) - rankOf(POPULAR_SYMBOLS, b.symbol) ||

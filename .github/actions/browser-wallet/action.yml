@@ -1,0 +1,41 @@
+# Builds the browser wallet (packages/zcash-web) into apps/web/public/wasm,
+# or restores it from the cache when none of its sources changed. Every job
+# that needs the wallet uses this action, so CI, a build on request and a
+# release all share one cache entry per source state.
+name: Browser wallet
+description: The Zcash wallet as WebAssembly, from the cache or from source
+runs:
+  using: composite
+  steps:
+    - id: wasm
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: apps/web/public/wasm
+        key: wasm-release-${{ hashFiles('packages/zcash/**', 'packages/zcash-web/**', 'vendor/**', 'Cargo.lock', 'apps/web/scripts/build-wasm.sh') }}
+    - if: steps.wasm.outputs.cache-hit != 'true'
+      uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      with:
+        toolchain: stable
+        targets: wasm32-unknown-unknown
+    - if: steps.wasm.outputs.cache-hit != 'true'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      with:
+        workspaces: ". -> target"
+        shared-key: wasm
+    - if: steps.wasm.outputs.cache-hit != 'true'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y clang lld
+    - if: steps.wasm.outputs.cache-hit != 'true'
+      name: wasm-pack, a pinned release with its checksum
+      shell: bash
+      run: |
+        curl -sSfL -o wasm-pack.tar.gz https://github.com/rustwasm/wasm-pack/releases/download/v0.13.1/wasm-pack-v0.13.1-x86_64-unknown-linux-musl.tar.gz
+        echo "c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539  wasm-pack.tar.gz" | sha256sum -c -
+        mkdir -p "$HOME/.local/bin"
+        tar xzf wasm-pack.tar.gz --strip-components=1 -C "$HOME/.local/bin" --wildcards '*/wasm-pack'
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        "$HOME/.local/bin/wasm-pack" --version
+    - if: steps.wasm.outputs.cache-hit != 'true'
+      name: The browser wallet, into public/wasm
+      shell: bash
+      run: CC_wasm32_unknown_unknown=clang apps/web/scripts/build-wasm.sh release

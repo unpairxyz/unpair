@@ -1,0 +1,82 @@
+# Builds what gets deployed: the API binary for Linux x86_64 and the web page,
+# each kept as a run artifact for seven days. The Release workflow calls this
+# for a tag; run it by hand to get a build of any branch without a release.
+#
+# The page is built with this repository's variables (Settings, Secrets and
+# variables, Actions):
+#   VITE_FEE_RECIPIENT    NEAR account that receives the routing fee
+#   VITE_FEE_BPS          fee in basis points, 0 to 100
+#   VITE_OFFICIAL_ORIGIN  https://your.domain
+#   VITE_API_URL          https://api.your.domain, or empty for no API
+#   VITE_API_PUBKEY       hex key from GET /v1/pubkey on that API
+#   VITE_LWD_GRPC_WEB_URL gRPC-web proxy for the browser wallet, or empty
+#   VITE_ZCASH_NETWORK    main or test
+# and the optional secret VITE_ONECLICK_JWT, the 1Click partner key. It ends
+# up in the public bundle like every VITE_ value; a secret keeps it out of logs.
+name: Build
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: ". -> target"
+          shared-key: api-release
+      - run: cargo build -p unpair-api --release --locked
+      - run: |
+          mkdir -p out
+          cp target/release/unpair-api out/unpair-api
+          (cd out && sha256sum unpair-api > unpair-api.sha256)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unpair-api-linux-x86_64
+          path: out
+          retention-days: 7
+
+  web:
+    name: Web page
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @unpair/sdk build && pnpm --filter @unpair/client build
+      - uses: ./.github/actions/browser-wallet
+      - name: Token and chain icons, served from our own origin
+        continue-on-error: true
+        run: node apps/web/scripts/fetch-icons.mjs
+      - name: Build the page
+        env:
+          VITE_FEE_RECIPIENT: ${{ vars.VITE_FEE_RECIPIENT }}
+          VITE_FEE_BPS: ${{ vars.VITE_FEE_BPS }}
+          VITE_OFFICIAL_ORIGIN: ${{ vars.VITE_OFFICIAL_ORIGIN }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_API_PUBKEY: ${{ vars.VITE_API_PUBKEY }}
+          VITE_LWD_GRPC_WEB_URL: ${{ vars.VITE_LWD_GRPC_WEB_URL }}
+          VITE_ZCASH_NETWORK: ${{ vars.VITE_ZCASH_NETWORK }}
+          VITE_ONECLICK_JWT: ${{ secrets.VITE_ONECLICK_JWT }}
+        run: pnpm --filter @unpair/web build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unpair-web
+          path: apps/web/dist
+          retention-days: 7

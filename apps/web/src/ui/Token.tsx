@@ -11,7 +11,7 @@ function Img({ src, label, badge = false }: { src: string | null; label: string;
 }
 
 /** Token logo with a small chain badge, like other aggregators. */
-export function TokenIcon({ token }: { token: TokenInfo }) {
+function TokenIcon({ token }: { token: TokenInfo }) {
   return (
     <span className="ti">
       <Img src={tokenIcon(token)} label={token.symbol} />
@@ -20,7 +20,7 @@ export function TokenIcon({ token }: { token: TokenInfo }) {
   );
 }
 
-export function ChainIcon({ chain }: { chain: string }) {
+function ChainIcon({ chain }: { chain: string }) {
   return (
     <span className="ti">
       <Img src={chainIcon(chain)} label={chainLabel(chain)} />

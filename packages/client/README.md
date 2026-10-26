@@ -4,7 +4,7 @@ Front-end logic for Unpair front ends. It never touches a key.
 
 - `ApiClient`, `verifySignedQuote`: talk to unpair-api and check that a quote was
   signed by the key the front end pins.
-- `planAmount`, `MODE_COPY`, `STATE_COPY`, `stateOf`: fast and quiet mode planning
+- `planAmount`, `STATE_COPY`, `stateOf`: fast and quiet mode planning
   and the words shown for each state.
 - `decodeUnified`, `describeCheck`, `describeRefundCheck`: decode a Zcash
   address, tell shielded-only from transparent, and refuse Sapling-only ones

@@ -4,10 +4,10 @@
 //             "free"   swims with the school; fades from red to ink
 //   exit      a different fish leaves to the right (the payout)
 
-export const SPOT = "#FF2E4D";
 
 /** Ink and paper of the current theme, read from the CSS tokens. A canvas cannot use var(), so it reads them here. */
-export const pal = { ink: "#000", paper: "#fff", trail: "rgba(0,0,0,.16)" };
+const SPOT = "#FF2E4D";
+const pal = { ink: "#000", paper: "#fff", trail: "rgba(0,0,0,.16)" };
 export function readPalette(): void {
   const cs = getComputedStyle(document.documentElement);
   pal.ink = cs.getPropertyValue("--ink").trim() || "#000";

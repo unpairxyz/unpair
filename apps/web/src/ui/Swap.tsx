@@ -84,7 +84,7 @@ export function Address({ value, qr = false }: { value: string; qr?: boolean }) 
   );
 }
 
-export const STATUS_PANELS = [
+const STATUS_PANELS = [
   { title: "DEPOSIT SEEN", text: "Your deposit arrived. Confirming." },
   { title: "INTO THE POOL", text: "It swaps into Zcash and dives into the shielded pool." },
   { title: "IN THE POOL", text: "Every coin looks the same here." },
