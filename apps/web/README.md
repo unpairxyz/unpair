@@ -47,12 +47,13 @@ Environment values are public and end up in the bundle:
 | `VITE_OFFICIAL_ORIGIN` | `https://unpair.xyz` | Shown in the notice on other origins. |
 | `VITE_API_URL` | empty | unpair-api base URL. When set, addresses are screened there and quotes come back signed. |
 | `VITE_API_PUBKEY` | empty | The API's Ed25519 public key, hex, from `GET /v1/pubkey`. A quote that does not verify is refused. |
-| `VITE_LWD_GRPC_WEB_URL` | empty | A gRPC-web proxy in front of lightwalletd. When set, the page offers "This browser". |
+| `VITE_LWD_GRPC_WEB_URL` | empty | A gRPC-web proxy in front of lightwalletd. When set, the page offers the one-time wallet. |
+| `VITE_ICON_BASE` | `/icons` | Where token and chain icons are served from. Leave it on the page's own origin, or the page makes third-party requests. |
 | `VITE_ZCASH_NETWORK` | `main` | `main` or `test`. The network the browser wallet uses. |
 
 ## The browser wallet
 
-"This browser" runs a Zcash wallet inside the tab for one swap. It is the
+The one-time wallet runs a Zcash wallet inside the tab for one swap. It is the
 Rust crate in `packages/zcash` compiled to WebAssembly, loaded at run time from
 `public/wasm/`, and driven from a worker so proving does not freeze the page.
 The folder is not committed. Build it before `pnpm build` or `pnpm dev`:
@@ -95,30 +96,29 @@ page points to it as the other choice.
   you choose. You pay the route's Zcash address from your own wallet.
 - **Fast or quiet.** Quiet rounds the amount and suggests a random wait between
   the hops.
-- **Who holds the coins in between.** Your own wallet, this browser, or
-  Unpair's server. With this browser, the tab makes a Zcash wallet for the
-  swap, hands the route a fresh shielded address, and pays hop two itself once
-  the note is spendable, after a random wait in quiet mode. The key stays in
-  the tab. A recovery file, offered before the deposit address, reopens the
-  wallet in a new tab and finishes the swap from the pool. With the server, hop one lands in Unpair's shielded wallet
-  and the server pays hop two later to the asset and address you chose, so the
-  tab can close. The page says next to the choice that the server holds your
-  funds between the hops and sees both ends. The choice is only on when the
-  configured API runs the hosted service. A swap link `?swap=<id>` reopens a
-  hosted swap.
-- **Who pays the route in Send out.** Your own wallet pays the route's Zcash
-  address, or this browser: the tab makes a wallet, you pay its shielded
-  address from any Zcash wallet, and the tab proves and pays hop two. A failed
-  hop two comes back to the tab's wallet.
-- **Refunds in Send out.** The refund address can be a shielded-only unified
-  address, so a failed swap comes back straight into the pool, or a transparent
-  address that your wallet shields again.
-- **Route.** NEAR Intents today. Maya Protocol and THORChain are listed with the
-  reason they are off, so the choice is visible before it is live.
-- **More privacy options.** Rounding on or off, slippage, suggested or your own
-  timing for the second hop, and a Tor Browser hint.
-
-None of these add a party to trust. They all run on your device.
+- **Who holds the coins in between.** The one-time wallet, Unpair's server, or
+  your own wallet. With the one-time wallet, the tab makes a Zcash wallet for
+  the swap, hands the route a fresh shielded address, and pays hop two itself
+  once the note is spendable, after a random wait in quiet mode. The key stays
+  in the tab. A recovery file, offered before the deposit address, reopens the
+  wallet in a new tab and finishes the swap from the pool. You can also pay the
+  tab's address with ZEC you already hold. With the server, hop one lands in
+  Unpair's shielded wallet and the server pays hop two later to the asset and
+  address you chose, so the tab can close. The page says next to the choice
+  that the server holds your funds between the hops and sees both ends. The
+  choice is only on when the configured API runs the hosted service. A swap
+  link `?swap=<id>` reopens a hosted swap. With your own wallet, the ZEC lands
+  there, shielded, and you send out later.
+- **Send out.** Your own wallet pays the route's Zcash address. The refund
+  address can be a shielded-only unified address, so a failed swap comes back
+  straight into the pool, or a transparent address that your wallet shields
+  again.
+- **Fee and time per choice.** Two chips next to each choice, and the summary
+  line under the form, say what each path costs and how long it takes. Quiet
+  mode adds its random wait.
+- **Check on your phone.** Parks the signed quote on the API for a second
+  device, which must show the same mark and code.
+- **Slippage.** 0.5%, 1% or 2%, in the settings behind the small button.
 
 ## With the API
 
@@ -134,7 +134,11 @@ fine for local development and for self-hosters who accept that.
 
 ## Privacy notes
 
-- Your browser talks to 1Click directly. Use Tor Browser or a VPN if you do not
-  want the route to see your IP.
-- The page stores nothing. Closing it loses the status view, not the swap. The
-  deposit address is enough to look the swap up again on the route's explorer.
+- Your browser fetches the token list from 1Click directly, and quotes too
+  when no API is configured. Use Tor Browser or a VPN if you do not want the
+  route to see your IP. The one-time wallet also reads the chain through the
+  gRPC-web proxy, which sees the tab's IP.
+- The page keeps only the theme and your recent tokens in local storage. No
+  key, no address and no swap is stored. Closing the tab loses the status view
+  of your own-wallet swap, not the swap; a hosted swap comes back by its link;
+  the one-time wallet comes back by its recovery file.
