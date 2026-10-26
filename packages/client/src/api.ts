@@ -5,7 +5,7 @@
  * public key, so a clone site cannot hand out a forged quote.
  */
 import { verifyAsync } from "@noble/ed25519";
-import type { QuoteRequest, QuoteResponse, StatusResponse } from "@unpair/sdk";
+import type { QuoteRequest, QuoteResponse, StatusResponse, TokenInfo } from "@unpair/sdk";
 
 export interface ApiConfig {
   fee_recipient: string;
@@ -164,6 +164,11 @@ export class ApiClient {
 
   config(): Promise<ApiConfig> {
     return this.call("GET", "/v1/config");
+  }
+
+  /** The route's token list, served by the API from its cache, so the page never calls the route. */
+  tokens(): Promise<TokenInfo[]> {
+    return this.call("GET", "/v1/tokens");
   }
 
   screen(address: string, chain: string): Promise<ScreenVerdict> {

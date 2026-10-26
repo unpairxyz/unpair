@@ -4,9 +4,11 @@ mod error;
 mod handoff;
 mod hosted;
 mod oneclick;
+mod ratelimit;
 mod routes;
 mod screening;
 mod sign;
+mod tokens;
 mod wallet_worker;
 
 use std::sync::Arc;
@@ -94,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let cfg_limit = cfg.rate_limit_per_min;
     let state = Arc::new(AppState {
         bind: cfg.bind,
         config: cfg,
@@ -102,6 +105,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         oneclick,
         hosted,
         handoff: handoff::Handoff::default(),
+        tokens: tokens::TokenCache::default(),
+        limit: ratelimit::RateLimit::new(cfg_limit),
         started_at: std::time::Instant::now(),
     });
 
