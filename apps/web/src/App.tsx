@@ -352,7 +352,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
     try {
       const recovery = parseRecovery(await file.text(), config.zcashNetwork);
       const wallet = await BrowserWallet.recover(recovery, config.lwdGrpcWebUrl);
-      setStep({ kind: "browser-resume", wallet, recovery });
+      // the worker holds the key from here; the page keeps the plan only
+      setStep({ kind: "browser-resume", wallet, recovery: { ...recovery, phrase: "" } });
       onStage("pool");
     } catch (e) {
       setError(describeError(e));
@@ -633,6 +634,20 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   }, [current]);
   const seed = markSeed(signed, quote);
   const deadline = depositDeadline(quote);
+  // a deposit that never comes: stop polling a while after the deadline and say so
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    if (!deadline || final) return;
+    const check = () => {
+      if (Date.now() > deadline.getTime() + 20 * 60_000) {
+        setLate(true);
+        setFinal(true);
+      }
+    };
+    check();
+    const t = window.setInterval(check, 60_000);
+    return () => window.clearInterval(t);
+  }, [deadline, final]);
 
   useEffect(() => {
     if (current === "routing") onStage("into");
@@ -707,10 +722,15 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
       <div className="wtitle"><b>IN PROGRESS</b><span className="code">{shortCode(seed)}</span></div>
       <StatusStrip current={strip} texts={direction === "in" ? { 0: "Watching the deposit address.", 1: "The route swaps it into ZEC and pays your address.", 2: "Lands in your wallet's shielded pool.", 3: "That part is yours: send out from your wallet later." } : { 0: "Watching the route's address.", 1: "The route is filling your swap.", 2: "Paid from your shielded note.", 3: "Your asset arrives at your address." }} />
       {status?.swapDetails.destinationChainTxHashes.map((tx) => (
-        <p key={tx.hash} className="fine">Transaction <a className="code" href={tx.explorerUrl} rel="noreferrer">{tx.hash.slice(0, 12)}…</a></p>
+        <p key={tx.hash} className="fine">Transaction {tx.explorerUrl.startsWith("https://") ? <a className="code" href={tx.explorerUrl} target="_blank" rel="noopener noreferrer">{tx.hash.slice(0, 12)}…</a> : <span className="code">{tx.hash.slice(0, 12)}…</span>}</p>
       ))}
       {error && <p className="err-line">Status check failed, retrying: {error}</p>}
-      <p className="fine">Keep this page open until the swap completes.</p>
+      {late ? (
+        <p className="fine">The deadline passed and nothing arrived. If you paid late, the route refunds your deposit to the refund address.</p>
+      ) : (
+        <p className="fine">Keep this page open until the swap completes.</p>
+      )}
+      <p className="fine"><button type="button" className="link" onClick={onDone}>Start over</button></p>
     </div>
   );
 }
