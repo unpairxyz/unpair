@@ -7,6 +7,16 @@
 # their own. Without Cloudflare, Caddy cannot look up a country on its own,
 # and the line below strips the header so the API refuses when
 # UNPAIR_GEOFENCE_REQUIRE_HEADER=true, or serves everyone when false.
+#
+# HTTP/1.1 and HTTP/2 only. On a network that drops QUIC, a browser worker
+# waits about 30 s per connection before it falls back from HTTP/3, and the
+# one-time wallet makes many. If Cloudflare proxies the host, turn HTTP/3 off
+# in the zone's network settings as well.
+{
+	servers {
+		protocols h1 h2
+	}
+}
 
 api.example.org {
 	encode gzip

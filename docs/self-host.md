@@ -48,7 +48,7 @@ cargo build -p unpair-api --release
 scp target/release/unpair-api yourbox:/usr/local/bin/
 ```
 
-`apps/api/deploy/Caddyfile` is a reverse proxy with TLS for the box. The country
+`apps/api/deploy/Caddyfile` is a reverse proxy with TLS for the box. It serves HTTP/1.1 and HTTP/2 only: on a network that drops QUIC, Safari waits about 30 s per connection before it falls back from HTTP/3, and the one-time wallet looks stuck. Turn HTTP/3 off at Cloudflare too if it proxies the hosts. The country
 header that the geofence reads must come from a trusted edge only. With
 Cloudflare in front, allow port 443 from Cloudflare's address ranges and nothing
 else, and remove the line in the Caddyfile that strips the header.

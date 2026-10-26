@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 wallet,
                 store,
                 config: h.clone(),
+                stand_in: tokio::sync::OnceCell::new(),
             })
         }
     };
@@ -112,6 +113,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(h) = state.hosted.as_ref() {
         driver::spawn(state.clone(), h.config.interval);
+        // the estimate's stand-in landing, read while the worker is still idle
+        let warm = state.clone();
+        tokio::spawn(async move {
+            if let Some(h) = warm.hosted.as_ref() {
+                if let Err(e) = h.stand_in().await {
+                    tracing::info!(error = %e, "stand-in landing not read yet");
+                }
+            }
+        });
     }
 
     let app = routes::router(state.clone());
