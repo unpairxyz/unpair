@@ -14,7 +14,7 @@ later spends your ZEC has to live somewhere. You choose where, per swap.
   transparent address and your wallet shields it. For a two-hop swap you send
   the second hop from your own wallet with the Send out tab. Unpair holds
   nothing on this path.
-- **This browser.** The page makes a wallet in the tab for one swap, in a
+- **One-time wallet.** The page makes a wallet in the tab for one swap, in a
   worker, from the same Rust code the server runs. Hop one pays a fresh
   shielded-only address of that wallet. When the note is spendable, after a
   random wait in quiet mode, the tab quotes hop two and pays it from Ironwood.
