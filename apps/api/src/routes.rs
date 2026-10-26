@@ -1,6 +1,7 @@
 //! HTTP routes.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -24,13 +25,32 @@ use crate::ratelimit::RateLimit;
 use crate::screening::{geofence, Screener, Verdict};
 use crate::sign::QuoteSigner;
 use crate::tokens::TokenCache;
-use crate::wallet_worker::{now_unix, Report, WalletHandle};
+use crate::wallet_worker::{now_unix, LandingInfo, Report, WalletHandle};
 
 /// The hosted swap service, present when the operator gave this server a seed.
 pub struct Hosted {
     pub wallet: WalletHandle,
     pub store: Store,
     pub config: HostedConfig,
+    /// The wallet's first landing, the ZEC side of every dry estimate. Read
+    /// once: the wallet worker answers only between its sync and payout
+    /// work, and an estimate must not wait behind a proof.
+    pub stand_in: tokio::sync::OnceCell<LandingInfo>,
+}
+
+impl Hosted {
+    /// The cached stand-in, read from the worker on first use with a bound
+    /// on the wait.
+    pub async fn stand_in(&self) -> Result<&LandingInfo, ApiError> {
+        self.stand_in
+            .get_or_try_init(|| async {
+                tokio::time::timeout(Duration::from_secs(20), self.wallet.landing_at(0))
+                    .await
+                    .map_err(|_| ApiError::Upstream("the wallet is busy".into()))?
+                    .map_err(ApiError::Internal)
+            })
+            .await
+    }
 }
 
 pub struct AppState {
@@ -568,12 +588,8 @@ async fn estimate(
     let (zec_recipient, zec_refund) = if to_zec {
         (recipient.clone(), String::new())
     } else {
-        let l = hosted_of(&s)?
-            .wallet
-            .landing_at(0)
-            .await
-            .map_err(ApiError::Internal)?;
-        (l.shielded, l.transparent)
+        let l = hosted_of(&s)?.stand_in().await?;
+        (l.shielded.clone(), l.transparent.clone())
     };
     let now = now_unix();
     let body = serde_json::json!({
