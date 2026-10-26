@@ -55,13 +55,18 @@ export function Segment<T extends string>({ label, value, options, onChange }: {
 }
 
 /** Who holds the coins, as one labelled row, with a one-line note under it. */
-export function Keeper<T extends string>({ label, value, options, onChange, note, warn = false }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; note: ReactNode; warn?: boolean }) {
+export function Keeper<T extends string>({ label, value, options, onChange, note, warn = false, chips }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void; note: ReactNode; warn?: boolean; chips?: readonly string[] }) {
   return (
     <>
       <div className="keep"><span className="klbl">{label}</span><Segment label={label} value={value} options={options} onChange={onChange} /></div>
-      <p className={warn ? "knote warn" : "knote"}>{note}</p>
+      <p className={warn ? "knote warn" : "knote"}>{chips && <Chips items={chips} />}{note}</p>
     </>
   );
+}
+
+/** Fee and time as two small chips. */
+export function Chips({ items }: { items: readonly string[] }) {
+  return <span className="chips">{items.map((c) => <span className="kchip" key={c}>{c}</span>)}</span>;
 }
 
 /** Send and get in one frame. The fish between them flips the pair, or only marks the pool when the pair cannot flip. */
@@ -92,12 +97,13 @@ function FlipFish({ x, up = false, red = false }: { x: number; up?: boolean; red
 }
 
 /** One side of the swap: a label, the USD value, the amount, the token, and an optional note. */
-export function Leg({ label, htmlFor, usd, amount, token, note, second = false }: { label: string; htmlFor?: string; usd?: string; amount: ReactNode; token: ReactNode; note?: ReactNode; second?: boolean }) {
+export function Leg({ label, htmlFor, usd, amount, token, note, picks, second = false }: { label: string; htmlFor?: string; usd?: string; amount: ReactNode; token: ReactNode; note?: ReactNode; picks?: ReactNode; second?: boolean }) {
   return (
     <div className={second ? "leg leg2" : "leg"}>
       <div className="lh">{htmlFor ? <label htmlFor={htmlFor}>{label}</label> : <span>{label}</span>}<span>{usd}</span></div>
       <div className="lr">{amount}{token}</div>
       {note ? <div className="lm">{note}</div> : null}
+      {picks}
     </div>
   );
 }
