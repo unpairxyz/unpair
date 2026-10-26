@@ -26,6 +26,19 @@ export interface HostedInfo {
   max_open: number;
   hop2_fee_reserve_zat: number;
   min_zat: number;
+  /** Quiet mode cuts hop two into standard sizes at separate times. */
+  split: boolean;
+}
+
+export type HostedPartState = "waiting" | "routing" | "done" | "failed";
+
+/** One payout of hop two. */
+export interface HostedPart {
+  idx: number;
+  amount_zat: number;
+  state: HostedPartState;
+  txid: string | null;
+  delivered_tx: string | null;
 }
 
 export type HostedState = "waiting_for_deposit" | "routing_in" | "in_pool" | "routing_out" | "done" | "refunded" | "expired" | "failed";
@@ -52,6 +65,12 @@ export interface HostedSwap {
   delivered_amount: string | null;
   delivered_tx: string | null;
   note: string | null;
+  /** Hop two parts: one in fast mode, standard sizes in quiet mode. */
+  parts_total: number;
+  parts_delivered: number;
+  parts: HostedPart[];
+  /** Zatoshis under the smallest part size that stay in the transit wallet. */
+  dust_zat: number | null;
 }
 
 export interface HostedCreateRequest {

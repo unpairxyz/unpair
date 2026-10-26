@@ -153,8 +153,8 @@ export function hostedStage(state: HostedState): number {
 export const HOSTED_COPY: Record<HostedState, { label: string; text: string }> = {
   waiting_for_deposit: { label: "Waiting for deposit", text: "Send exactly the amount shown to the deposit address before the deadline. You can close this tab and come back with the link." },
   routing_in: { label: "Into the pool", text: "Deposit seen. The route is turning it into ZEC and paying Unpair's transit wallet, straight into the shielded pool." },
-  in_pool: { label: "In the pool", text: "Your ZEC sits in Unpair's transit wallet as one shielded note. At the release time the server sends it on from a fresh source." },
-  routing_out: { label: "Out", text: "The second hop is paid from the pool. The route is delivering your asset." },
+  in_pool: { label: "In the pool", text: "Your ZEC sits shielded in Unpair's transit wallet. At the release time the server sends it on from a fresh source, in standard sizes in quiet mode." },
+  routing_out: { label: "Out", text: "The second hop is paid from the pool. The route is delivering your asset, part by part in quiet mode." },
   done: { label: "Delivered", text: "Your asset arrived at your address. On chain, nothing links it to your deposit. Unpair's server saw both ends; it keeps this record for seven days, then deletes it." },
   refunded: { label: "Refunded", text: "The first hop did not complete. The route returned your deposit to the refund address." },
   expired: { label: "Expired", text: "No deposit arrived before the deadline. A deposit sent after it is returned by the route to the refund address." },

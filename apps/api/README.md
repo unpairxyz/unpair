@@ -30,6 +30,8 @@ A small Rust service. It does the parts a static page cannot:
 
 `waiting_for_deposit`, `routing_in`, `in_pool`, `routing_out`, then `done`, `refunded`, `expired` or `failed`. A `failed` swap holds its ZEC in the transit wallet until the operator acts. Finished swaps are deleted after seven days.
 
+Hop two goes out in parts. A fast swap has one part for the full amount. A quiet swap is cut into standard sizes, 0.5, 0.2, 0.1, 0.05 and 0.02 ZEC, at most six parts, each with its own release time, quote, payout and route status; what is left under 0.02 ZEC stays in the transit wallet as `dust_zat`. The swap is `in_pool` until the first part is paid, `routing_out` while any part is unpaid or in flight, `done` when every part is delivered, and `failed` if a part gives up. The swap view carries `parts_total`, `parts_delivered`, `dust_zat` and a `parts` list with each part's state, txid and delivery transaction. `UNPAIR_HOSTED_SPLIT=false` turns the cut off; `/v1/config` shows `hosted.split`.
+
 ### Rate limit
 
 `UNPAIR_RATE_LIMIT_PER_MIN` (default 20, 0 turns it off) bounds what one client
