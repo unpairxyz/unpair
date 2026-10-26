@@ -71,6 +71,8 @@ export interface HostedSwap {
   parts: HostedPart[];
   /** Zatoshis under the smallest part size that stay in the transit wallet. */
   dust_zat: number | null;
+  /** What a dry hop-two quote said you get, taken when the swap was created. */
+  estimate_out: string | null;
 }
 
 export interface HostedCreateRequest {
