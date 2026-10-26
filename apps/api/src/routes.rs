@@ -454,13 +454,50 @@ pub struct EstimateBody {
     pub amount: String,
     #[serde(rename = "destinationAsset")]
     pub destination_asset: String,
+    /// Empty before the user has typed it: a well-formed stand-in on the
+    /// chain goes to the route instead, when there is one for the chain.
+    #[serde(default)]
     pub recipient: String,
-    #[serde(rename = "refundTo")]
+    #[serde(rename = "refundTo", default)]
     pub refund_to: String,
     #[serde(rename = "slippageTolerance")]
     pub slippage_bps: Option<u32>,
     #[serde(default)]
     pub custody: Custody,
+}
+
+/// Chains whose addresses are 20-byte hex, so one stand-in serves them all.
+const EVM_CHAINS: &[&str] = &[
+    "eth",
+    "base",
+    "arb",
+    "op",
+    "pol",
+    "bsc",
+    "gnosis",
+    "avax",
+    "bera",
+    "scroll",
+    "monad",
+    "xlayer",
+    "plasma",
+    "hood",
+    "abs",
+    "adi",
+    "hypercore",
+];
+
+/// A well-formed address on `chain` for a dry quote asked before the user
+/// has typed theirs. A dry quote checks the form of an address and sends
+/// nothing, so the stand-in never receives anything. None for a chain
+/// without one: the form then waits for the real address.
+fn placeholder_address(chain: &str, near_account: &str) -> Option<String> {
+    match chain {
+        "sol" | "fogo" => Some("11111111111111111111111111111111".into()),
+        "near" => Some(near_account.into()),
+        c if EVM_CHAINS.contains(&c) => Some("0x1111111111111111111111111111111111111111".into()),
+        _ => None,
+    }
 }
 
 #[derive(Serialize)]
@@ -500,21 +537,34 @@ async fn estimate(
             "slippage must be from 1 to 500 bps".into(),
         ));
     }
-    let refund_to = req.refund_to.trim().to_string();
-    let recipient = req.recipient.trim().to_string();
-    if refund_to.is_empty()
-        || recipient.is_empty()
-        || refund_to.len() > 200
-        || recipient.len() > 200
-    {
-        return Err(ApiError::BadRequest(
-            "refundTo and recipient are required".into(),
-        ));
-    }
     let to_zec = req.destination_asset == hosted::ZEC_ASSET;
     if !to_zec {
         check_destination(&req.destination_asset)?;
     }
+    let stand_in = |typed: &str, asset: &str| -> Result<String, ApiError> {
+        let typed = typed.trim();
+        if typed.len() > 200 {
+            return Err(ApiError::BadRequest("an address is too long".into()));
+        }
+        if !typed.is_empty() {
+            return Ok(typed.to_string());
+        }
+        chain_of_asset(asset)
+            .and_then(|c| placeholder_address(&c, &s.config.fee_recipient))
+            .ok_or_else(|| {
+                ApiError::BadRequest("address needed for an estimate on this chain".into())
+            })
+    };
+    let refund_to = stand_in(&req.refund_to, &req.origin_asset)?;
+    let recipient = if to_zec {
+        let t = req.recipient.trim();
+        if t.is_empty() || t.len() > 200 {
+            return Err(ApiError::BadRequest("recipient is required".into()));
+        }
+        t.to_string()
+    } else {
+        stand_in(&req.recipient, &req.destination_asset)?
+    };
     let (zec_recipient, zec_refund) = if to_zec {
         (recipient.clone(), String::new())
     } else {
@@ -1248,6 +1298,17 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        // no address typed and no stand-in for the chain: refused before any upstream call
+        let mut j = body("1000", "nep141:btc.omft.near");
+        j["recipient"] = Value::String(String::new());
+        let r = app.clone().oneshot(post(j)).await.unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        assert!(placeholder_address("base", "unpair.near").is_some());
+        assert_eq!(
+            placeholder_address("near", "unpair.near").as_deref(),
+            Some("unpair.near")
+        );
+        assert!(placeholder_address("btc", "unpair.near").is_none());
         // a field the page does not send is refused
         let mut j = body("1000", "nep141:usdc.near");
         j["appFees"] = serde_json::json!([]);
