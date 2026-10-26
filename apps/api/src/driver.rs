@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use crate::error::ApiError;
 use crate::hosted::{
-    parse_rfc3339, release_delay_secs, status_facts, Mode, State, Swap, DEPOSIT_WINDOW_SECS,
-    HOP2_FEE_RESERVE_ZAT, MAX_ATTEMPTS, MIN_ZAT, ZEC_ASSET,
+    parse_rfc3339, release_delay_secs, split_amount, status_facts, Mode, Part, PartState, State,
+    Swap, DEPOSIT_WINDOW_SECS, HOP2_FEE_RESERVE_ZAT, MAX_ATTEMPTS, MIN_ZAT, ZEC_ASSET,
 };
 use crate::oneclick::AppFee;
 use crate::routes::AppState;
@@ -33,8 +33,14 @@ const UNRESOLVED_NOTE: &str = "A payout for the second hop was started and its r
 
 /// A hop-two payout was handed to the wallet and no txid came back. The
 /// transaction may or may not be on the chain; only the operator can tell.
+/// Reads the swap's own columns, which the driver mirrors from the last part.
 pub fn payout_unresolved(swap: &Swap) -> bool {
     swap.hop2_paying_unix.is_some() && swap.hop2_txid.is_none()
+}
+
+/// The same question for one part.
+pub fn part_unresolved(part: &Part) -> bool {
+    part.paying_unix.is_some() && part.txid.is_none()
 }
 
 pub fn spawn(state: Arc<AppState>, interval: Duration) {
@@ -79,12 +85,7 @@ async fn tick(state: &AppState) {
 async fn advance(state: &AppState, swap: &mut Swap, now: u64) {
     match swap.state {
         State::WaitingForDeposit | State::RoutingIn => hop_one(state, swap, now).await,
-        State::InPool => {
-            if swap.release_at_unix.is_some_and(|t| t <= now) {
-                hop_two(state, swap, now).await;
-            }
-        }
-        State::RoutingOut => hop_two_status(state, swap, now).await,
+        State::InPool | State::RoutingOut => drive_parts(state, swap, now).await,
         _ => {}
     }
 }
@@ -132,8 +133,49 @@ async fn hop_one(state: &AppState, swap: &mut Swap, now: u64) {
                 swap.note = Some("The ZEC that arrived is too small to send on. Contact the operator with your swap id.".into());
                 return;
             }
-            swap.hop2_amount_in = Some(hop2_amount(received, swap.mode, hosted.config.max_zat));
-            swap.release_at_unix = Some(now.saturating_add(release_delay_secs(swap.mode)));
+            // Cut hop two into parts, each with its own release time. A tick
+            // that already made them (and then failed to store the swap)
+            // finds them again instead of making more.
+            let parts = match hosted.store.parts_of(&swap.id) {
+                Ok(p) if !p.is_empty() => p,
+                Ok(_) => {
+                    let quiet = swap.mode == Mode::Quiet && hosted.config.split;
+                    let split = split_amount(received.min(hosted.config.max_zat), quiet);
+                    let parts: Vec<Part> = split
+                        .parts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &amount)| Part {
+                            swap_id: swap.id.clone(),
+                            idx: i as u32,
+                            amount_zat: amount,
+                            release_at_unix: now.saturating_add(release_delay_secs(swap.mode)),
+                            deposit_address: None,
+                            quote: None,
+                            paying_unix: None,
+                            txid: None,
+                            state: PartState::Waiting,
+                            delivered_amount: None,
+                            delivered_tx: None,
+                            attempts: 0,
+                            last_error: None,
+                            updated_unix: now,
+                        })
+                        .collect();
+                    if let Err(e) = hosted.store.insert_parts(&parts) {
+                        swap.last_error = Some(format!("store parts: {e}"));
+                        return;
+                    }
+                    swap.dust_zat = Some(split.dust_zat);
+                    parts
+                }
+                Err(e) => {
+                    swap.last_error = Some(format!("read parts: {e}"));
+                    return;
+                }
+            };
+            swap.hop2_amount_in = Some(parts.iter().map(|p| p.amount_zat).sum());
+            swap.release_at_unix = parts.iter().map(|p| p.release_at_unix).min();
             swap.state = State::InPool;
         }
         "REFUNDED" => {
@@ -158,63 +200,135 @@ fn release_landing(hosted: &crate::routes::Hosted, swap: &Swap) {
     }
 }
 
-/// What hop two pays, from what hop one delivered. The reserve covers the
-/// network fee. Nothing above the per-swap cap is ever sent on. The amount is
-/// not rounded here: a remainder would stay in the transit wallet, and that
-/// is a fee the user was never shown. Quiet mode on this path is the random
-/// delay; the denomination split that breaks amount matching is still to come.
-fn hop2_amount(received: u64, _mode: Mode, max_zat: u64) -> u64 {
-    received.min(max_zat).saturating_sub(HOP2_FEE_RESERVE_ZAT)
-}
-
 /// Try again later. Passing faults do not count as attempts.
-fn back_off(swap: &mut Swap, now: u64, error: String) {
-    swap.last_error = Some(error);
-    swap.release_at_unix = Some(now.saturating_add(TRANSIENT_BACKOFF_SECS));
+fn back_off(part: &mut Part, now: u64, error: String) {
+    part.last_error = Some(error);
+    part.release_at_unix = now.saturating_add(TRANSIENT_BACKOFF_SECS);
 }
 
-/// Quote hop two, pay it from Ironwood, tell 1Click the txid.
-async fn hop_two(state: &AppState, swap: &mut Swap, now: u64) {
+/// Move every part of a swap forward: poll the ones the route is filling,
+/// pay the ones whose release time came, then set the swap's state from
+/// the parts. The swap's own hop-two columns mirror the last part touched,
+/// for the page and the operator.
+async fn drive_parts(state: &AppState, swap: &mut Swap, now: u64) {
     let Some(hosted) = state.hosted.as_ref() else {
         return;
     };
-    if payout_unresolved(swap) {
-        tracing::warn!(id = %swap.id, "hop two payout with no txid; needs the operator");
+    let mut parts = match hosted.store.parts_of(&swap.id) {
+        Ok(p) => p,
+        Err(e) => {
+            swap.last_error = Some(format!("read parts: {e}"));
+            return;
+        }
+    };
+    if parts.is_empty() {
         swap.state = State::Failed;
-        swap.note = Some(UNRESOLVED_NOTE.into());
+        swap.last_error = Some("in pool without parts".into());
+        swap.note = Some("The second hop could not be started. The ZEC is safe in the transit wallet. Contact the operator with your swap id.".into());
         return;
     }
-    let Some(amount) = swap.hop2_amount_in else {
-        swap.state = State::Failed;
-        swap.last_error = Some("in pool without a hop two amount".into());
-        return;
-    };
-    if swap.attempts >= MAX_ATTEMPTS {
-        swap.state = State::Failed;
-        swap.note = Some("The second hop could not be completed. The ZEC is safe in the transit wallet. Contact the operator with your swap id.".into());
-        return;
+    for part in parts.iter_mut() {
+        let before = (part.state, part.txid.clone(), part.release_at_unix);
+        match part.state {
+            PartState::Routing => part_status(state, part, now).await,
+            PartState::Waiting if part.release_at_unix <= now => {
+                pay_part(state, swap, part, now).await
+            }
+            _ => {}
+        }
+        if (part.state, part.txid.clone(), part.release_at_unix) != before
+            || part.last_error.is_some()
+        {
+            part.updated_unix = now_unix();
+            if let Err(e) = hosted.store.update_part(part) {
+                tracing::error!(id = %swap.id, idx = part.idx, error = %e, "could not store part");
+            }
+        }
     }
 
+    let delivered = parts.iter().filter(|p| p.state == PartState::Done).count();
+    let failed = parts
+        .iter()
+        .filter(|p| p.state == PartState::Failed)
+        .count();
+    let paid = parts.iter().filter(|p| p.txid.is_some()).count();
+    swap.hop2_txid = parts.iter().rev().find_map(|p| p.txid.clone());
+    swap.hop2_deposit_address = parts.iter().rev().find_map(|p| p.deposit_address.clone());
+    swap.hop2_paying_unix = parts.iter().rev().find_map(|p| p.paying_unix);
+    swap.attempts = parts.iter().map(|p| p.attempts).max().unwrap_or(0);
+    swap.last_error = parts.iter().rev().find_map(|p| p.last_error.clone());
+    swap.release_at_unix = parts
+        .iter()
+        .filter(|p| p.state == PartState::Waiting)
+        .map(|p| p.release_at_unix)
+        .min()
+        .or(swap.release_at_unix);
+    if failed > 0 {
+        swap.state = State::Failed;
+        let unresolved = parts.iter().any(part_unresolved);
+        swap.note = Some(if unresolved {
+            UNRESOLVED_NOTE.to_string()
+        } else if parts.len() == 1 {
+            "The second hop could not be completed. The ZEC is safe in the transit wallet. Contact the operator with your swap id.".to_string()
+        } else {
+            format!(
+                "{delivered} of {} parts were delivered. The rest could not be sent on and the ZEC is safe in the transit wallet. Contact the operator with your swap id.",
+                parts.len()
+            )
+        });
+    } else if delivered == parts.len() {
+        swap.state = State::Done;
+        let last = parts.last().expect("checked");
+        swap.delivered_tx = last.delivered_tx.clone();
+        swap.delivered_amount = if parts.len() == 1 {
+            last.delivered_amount.clone()
+        } else {
+            None
+        };
+    } else if paid > 0 {
+        swap.state = State::RoutingOut;
+    } else {
+        swap.state = State::InPool;
+    }
+}
+
+/// Quote one part, pay it from Ironwood, tell 1Click the txid.
+async fn pay_part(state: &AppState, swap: &Swap, part: &mut Part, now: u64) {
+    let Some(hosted) = state.hosted.as_ref() else {
+        return;
+    };
+    if part_unresolved(part) {
+        tracing::warn!(id = %swap.id, idx = part.idx, "payout with no txid; needs the operator");
+        part.state = PartState::Failed;
+        return;
+    }
+    if part.attempts >= MAX_ATTEMPTS {
+        part.state = PartState::Failed;
+        return;
+    }
+    let amount = part.amount_zat;
+
     // Is the wallet able to pay? Spendable must cover this and every other
-    // swap that is due, so one swap cannot spend another's note.
+    // part that is still unpaid, so one swap cannot spend another's note.
     let report = match hosted.wallet.report().await {
         Ok(r) => r,
-        Err(e) => return back_off(swap, now, format!("wallet report: {e}")),
+        Err(e) => return back_off(part, now, format!("wallet report: {e}")),
     };
     if report.upgrade.as_ref().is_some_and(|u| u.sending_paused) {
-        return back_off(swap, now, "sending paused for the network upgrade".into());
+        return back_off(part, now, "sending paused for the network upgrade".into());
     }
     let committed = hosted.store.committed_zat().unwrap_or(0);
     if report.balance.ironwood_spendable < committed.max(amount) {
         tracing::warn!(
             id = %swap.id,
+            idx = part.idx,
             amount,
             committed,
             spendable = report.balance.ironwood_spendable,
-            "hop two held: spendable below what is committed"
+            "payout held: spendable below what is committed"
         );
         return back_off(
-            swap,
+            part,
             now,
             format!(
                 "spendable {} below committed {}",
@@ -243,12 +357,12 @@ async fn hop_two(state: &AppState, swap: &mut Swap, now: u64) {
         Ok(q) => q,
         // The route refused this quote: that counts. Not reaching it does not.
         Err(ApiError::BadRequest(m)) => {
-            swap.attempts += 1;
-            swap.last_error = Some(format!("hop two quote: {m}"));
-            swap.release_at_unix = Some(now.saturating_add(RETRY_DELAY_SECS));
+            part.attempts += 1;
+            part.last_error = Some(format!("hop two quote: {m}"));
+            part.release_at_unix = now.saturating_add(RETRY_DELAY_SECS);
             return;
         }
-        Err(e) => return back_off(swap, now, format!("hop two quote: {e}")),
+        Err(e) => return back_off(part, now, format!("hop two quote: {e}")),
     };
     let Some(deposit) = quote
         .get("quote")
@@ -256,11 +370,11 @@ async fn hop_two(state: &AppState, swap: &mut Swap, now: u64) {
         .and_then(Value::as_str)
         .map(str::to_string)
     else {
-        return back_off(swap, now, "hop two quote without a deposit address".into());
+        return back_off(part, now, "hop two quote without a deposit address".into());
     };
     if !deposit.starts_with("t1") && !deposit.starts_with("t3") {
         return back_off(
-            swap,
+            part,
             now,
             "hop two deposit address is not transparent".into(),
         );
@@ -273,95 +387,93 @@ async fn hop_two(state: &AppState, swap: &mut Swap, now: u64) {
         .unwrap_or(now.saturating_add(HOP2_DEADLINE_SECS));
     if deadline < now.saturating_add(10 * 60) {
         return back_off(
-            swap,
+            part,
             now,
             "hop two deadline too close to prove in time".into(),
         );
     }
-    swap.hop2_quote = Some(quote);
-    swap.hop2_deposit_address = Some(deposit.clone());
+    part.quote = Some(quote);
+    part.deposit_address = Some(deposit.clone());
 
     // The attempt is on disk before the wallet sees it. If the process dies
     // between the broadcast and the next write, the marker without a txid
-    // stops the driver from paying this swap twice.
-    swap.hop2_paying_unix = Some(now);
-    swap.updated_unix = now;
-    if let Err(e) = hosted.store.update(swap) {
-        swap.hop2_paying_unix = None;
-        tracing::error!(id = %swap.id, error = %e, "could not record the payout attempt; not paying");
-        return back_off(swap, now, format!("record payout attempt: {e}"));
+    // stops the driver from paying this part twice.
+    part.paying_unix = Some(now);
+    part.updated_unix = now;
+    if let Err(e) = hosted.store.update_part(part) {
+        part.paying_unix = None;
+        tracing::error!(id = %swap.id, idx = part.idx, error = %e, "could not record the payout attempt; not paying");
+        return back_off(part, now, format!("record payout attempt: {e}"));
     }
 
     let paid = match hosted.wallet.pay(deposit.clone(), amount).await {
         Ok(p) => p,
         Err(e) => {
             // The transaction may have been broadcast before the error.
-            tracing::warn!(id = %swap.id, error = %e, "hop two payout failed with an unknown result");
-            swap.state = State::Failed;
-            swap.note = Some(UNRESOLVED_NOTE.into());
-            swap.last_error = Some(format!("hop two payout: {e}"));
+            tracing::warn!(id = %swap.id, idx = part.idx, error = %e, "payout failed with an unknown result");
+            part.state = PartState::Failed;
+            part.last_error = Some(format!("hop two payout: {e}"));
             return;
         }
     };
-    swap.hop2_txid = Some(paid.txid.clone());
-    swap.state = State::RoutingOut;
-    swap.last_error = None;
+    part.txid = Some(paid.txid.clone());
+    part.state = PartState::Routing;
+    part.last_error = None;
     if let Some(e) = &paid.broadcast_error {
         // Built and stored, broadcast unsure. The route's status decides:
         // it either sees the transaction or reports nothing, and a REFUNDED
-        // or FAILED status brings the swap back to the pool as before.
-        tracing::warn!(id = %swap.id, txid = %paid.txid, error = %e, "hop two broadcast unsure");
-        swap.last_error = Some(format!("hop two broadcast: {e}"));
-        swap.note = Some("The payout was built but its broadcast did not confirm. The server keeps watching the route.".into());
+        // or FAILED status brings the part back to waiting as before.
+        tracing::warn!(id = %swap.id, idx = part.idx, txid = %paid.txid, error = %e, "broadcast unsure");
+        part.last_error = Some(format!("hop two broadcast: {e}"));
     }
-    swap.updated_unix = now_unix();
-    if let Err(e) = hosted.store.update(swap) {
-        tracing::error!(id = %swap.id, error = %e, "could not store the payout txid");
+    part.updated_unix = now_unix();
+    if let Err(e) = hosted.store.update_part(part) {
+        tracing::error!(id = %swap.id, idx = part.idx, error = %e, "could not store the payout txid");
     }
     if let Err(e) = state.oneclick.submit_deposit(&paid.txid, &deposit).await {
         // 1Click finds the deposit on its own; this only speeds it up.
-        swap.last_error = Some(format!("deposit submit: {e}"));
+        part.last_error = Some(format!("deposit submit: {e}"));
     }
 }
 
-async fn hop_two_status(state: &AppState, swap: &mut Swap, now: u64) {
-    let Some(deposit) = swap.hop2_deposit_address.clone() else {
-        swap.state = State::InPool;
+async fn part_status(state: &AppState, part: &mut Part, now: u64) {
+    let Some(deposit) = part.deposit_address.clone() else {
+        part.state = PartState::Waiting;
         return;
     };
     let status = match state.oneclick.status(&deposit, None).await {
         Ok(v) => v,
         Err(e) => {
-            swap.last_error = Some(format!("hop two status: {e}"));
+            part.last_error = Some(format!("hop two status: {e}"));
             return;
         }
     };
     let facts = status_facts(&status);
-    swap.last_error = None;
+    part.last_error = None;
     match facts.status.as_str() {
         "PENDING_DEPOSIT" | "KNOWN_DEPOSIT_TX" | "INCOMPLETE_DEPOSIT" | "PROCESSING" => {
             // Still filling. If the payout never confirmed and the deadline
             // passed, the route returns it and the next poll sees REFUNDED.
         }
         "SUCCESS" => {
-            swap.delivered_amount = facts.amount_out_formatted;
-            swap.delivered_tx = facts.destination_tx;
-            swap.state = State::Done;
+            part.delivered_amount = facts.amount_out_formatted;
+            part.delivered_tx = facts.destination_tx;
+            part.state = PartState::Done;
         }
         "REFUNDED" | "FAILED" => {
             // The ZEC comes back to our transparent receiver; the shield
             // cycle sweeps it. Try again later from the pool. This is a real
             // attempt that did not work.
-            swap.attempts += 1;
-            swap.state = State::InPool;
-            swap.release_at_unix = Some(now.saturating_add(RETRY_DELAY_SECS));
-            swap.hop2_deposit_address = None;
-            swap.hop2_txid = None;
-            swap.hop2_paying_unix = None;
-            swap.last_error = Some(format!("hop two {}", facts.status.to_lowercase()));
+            part.attempts += 1;
+            part.state = PartState::Waiting;
+            part.release_at_unix = now.saturating_add(RETRY_DELAY_SECS);
+            part.deposit_address = None;
+            part.txid = None;
+            part.paying_unix = None;
+            part.last_error = Some(format!("hop two {}", facts.status.to_lowercase()));
         }
         other => {
-            swap.last_error = Some(format!("unknown 1Click status {other}"));
+            part.last_error = Some(format!("unknown 1Click status {other}"));
         }
     }
 }
@@ -383,12 +495,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hop_two_amount_is_capped_and_never_rounded() {
-        let max = 100_000_000;
-        assert_eq!(hop2_amount(1_000_000, Mode::Fast, max), 980_000);
-        assert_eq!(hop2_amount(1_000_000, Mode::Quiet, max), 980_000);
-        assert_eq!(hop2_amount(493_020_000, Mode::Fast, max), 99_980_000);
-        assert_eq!(hop2_amount(493_020_000, Mode::Quiet, max), 99_980_000);
-        assert_eq!(hop2_amount(10_000, Mode::Fast, max), 0);
+    fn a_part_with_a_marker_and_no_txid_is_unresolved() {
+        let mut p = Part {
+            swap_id: "s".into(),
+            idx: 0,
+            amount_zat: 1,
+            release_at_unix: 0,
+            deposit_address: None,
+            quote: None,
+            paying_unix: Some(1),
+            txid: None,
+            state: PartState::Waiting,
+            delivered_amount: None,
+            delivered_tx: None,
+            attempts: 0,
+            last_error: None,
+            updated_unix: 0,
+        };
+        assert!(part_unresolved(&p));
+        p.txid = Some("t".into());
+        assert!(!part_unresolved(&p));
+    }
+
+    #[test]
+    fn the_basis_is_capped_before_the_cut() {
+        let s = split_amount(493_020_000u64.min(100_000_000), false);
+        assert_eq!(s.parts, vec![99_980_000]);
+        let s = split_amount(493_020_000u64.min(100_000_000), true);
+        assert!(s.parts.iter().sum::<u64>() <= 100_000_000);
     }
 }

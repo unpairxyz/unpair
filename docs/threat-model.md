@@ -80,7 +80,7 @@ Nothing else. No own node, no own chain, no token.
 - A fresh landing address per swap. Never reused.
 - Payouts go straight into Ironwood when the route can pay a shielded-only address. Transparent payouts are shielded into Ironwood in one step, on your device.
 - Refund addresses follow the payout rule. A shielded-only unified address is refunded straight into the pool, a transparent address is shielded again on receipt. Like the payout address, a refund address is readable for that one transaction, so it is fresh and used once.
-- Quiet mode rounds the deposit and releases after a random delay with a mean of about 3 hours and a cap of 12. The one-time wallet also cuts what it sends on to two digits, and the small rest stays in that wallet. The server path sends on the full amount, so an observer can still match it by value until the denomination split ships.
+- Quiet mode rounds the deposit and releases after a random delay with a mean of about 3 hours and a cap of 12. The one-time wallet also cuts what it sends on to two digits, and the small rest stays in that wallet. The server path cuts hop two into standard sizes, 0.5, 0.2, 0.1, 0.05 and 0.02 ZEC, at most six parts, each sent on at its own random time. What is left under 0.02 ZEC stays in the transit wallet, and the page says so before the deposit. Pieces of the same size from different swaps look alike, so the cover grows with our own volume; with few swaps in a window an observer can still group them by timing.
 - Every fee is shown before the trade and capped in code.
 - "Check on your phone" parks a quote on the server, in memory, only when you ask, under an id nobody can guess, for at most a day. Anyone with that id sees the quote, so the link is yours to keep.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
@@ -128,3 +128,8 @@ break of the on-chain link than a payout into your own wallet. The price is
 that you trust us with your funds for that time, and that we can link the two
 ends. It also makes us a custodian in the eyes of regulators in some places.
 The page says this next to the choice. Your own wallet is the default.
+
+In quiet mode the server does not send your amount on in one piece. It cuts it
+into standard sizes and sends each at its own random time, so no payout
+matches the landing by value. The cover this gives depends on how many swaps
+share those sizes and hours, which is our volume, not a property of the code.

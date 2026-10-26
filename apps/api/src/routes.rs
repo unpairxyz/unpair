@@ -158,6 +158,8 @@ struct HostedPublic {
     /// Zatoshis kept back for the hop-two network fee.
     hop2_fee_reserve_zat: u64,
     min_zat: u64,
+    /// Quiet mode cuts hop two into standard sizes at separate times.
+    split: bool,
 }
 
 async fn config(State(s): State<Shared>) -> Json<PublicConfig> {
@@ -177,6 +179,7 @@ async fn config(State(s): State<Shared>) -> Json<PublicConfig> {
             max_open: h.config.max_open,
             hop2_fee_reserve_zat: hosted::HOP2_FEE_RESERVE_ZAT,
             min_zat: hosted::MIN_ZAT,
+            split: h.config.split,
         }),
     })
 }
@@ -579,6 +582,7 @@ async fn hosted_create(
         note: None,
         last_error: None,
         hop2_paying_unix: None,
+        dust_zat: None,
     };
     if !h.store.insert_if_below(&swap, h.config.max_open)? {
         let _ = h.store.release_landing(landing.index);
@@ -588,7 +592,7 @@ async fn hosted_create(
     }
     tracing::info!(id = %swap.id, mode = swap.mode.as_str(), "hosted swap created");
     Ok(Json(HostedCreated {
-        swap: swap.view(),
+        swap: swap.view(&[]),
         quote: SignedQuote {
             quote,
             fee_recipient: s.config.fee_recipient.clone(),
@@ -613,7 +617,8 @@ async fn hosted_get(
     let h = hosted_of(&s)?;
     swap_id(&id)?;
     let swap = h.store.get(&id)?.ok_or(ApiError::NotFound)?;
-    Ok(Json(swap.view()))
+    let parts = h.store.parts_of(&id)?;
+    Ok(Json(swap.view(&parts)))
 }
 
 #[derive(Serialize)]
@@ -655,12 +660,20 @@ async fn operator_swap(
     State(s): State<Shared>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<Swap>, ApiError> {
+) -> Result<Json<OperatorSwap>, ApiError> {
     let h = hosted_of(&s)?;
     operator_auth(&s, &headers)?;
     swap_id(&id)?;
     let swap = h.store.get(&id)?.ok_or(ApiError::NotFound)?;
-    Ok(Json(swap))
+    let parts = h.store.parts_of(&id)?;
+    Ok(Json(OperatorSwap { swap, parts }))
+}
+
+/// The whole row and its hop-two parts.
+#[derive(Serialize)]
+pub struct OperatorSwap {
+    pub swap: Swap,
+    pub parts: Vec<hosted::Part>,
 }
 
 #[derive(Deserialize)]
