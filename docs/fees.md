@@ -32,6 +32,15 @@ is taken on hop one only; hop two carries no routing fee. From the browser
 wallet both hops are quoted from your device, so each carries the routing fee,
 as with your own wallet.
 
+## Why a small swap gets less
+
+Three costs do not shrink with the amount: the route's own minimum on each
+hop, the network fee reserve of 0.0002 ZEC kept back before hop two, and in
+quiet mode on the server path the dust under the smallest standard size. On a
+3 USD swap they add up to about a fifth of it. The page shows what the route
+will pay before you deposit. Swap at least about 20 USD worth to keep them
+small.
+
 ## Flagged flows
 
 No fee is taken from a flow that screening stops. The deposit is refunded to the
