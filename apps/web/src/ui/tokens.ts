@@ -12,8 +12,12 @@ export const chainLabel = (chain: string): string => MORE_NAMES[chain] ?? chainN
 // scripts/fetch-icons.mjs fills public/icons/ at build time. A missing icon shows a monogram.
 const ICON_BASE = ((import.meta.env.VITE_ICON_BASE as string | undefined)?.trim() || `${import.meta.env.BASE_URL}icons`).replace(/\/$/, "");
 
-export const tokenIcon = (t: TokenInfo): string | null => (t.coingeckoId ? `${ICON_BASE}/${t.coingeckoId}.png` : null);
-export const chainIcon = (chain: string): string => `${ICON_BASE}/chain-${chain}.png`;
+// Bump when icon files are added or replaced, so caches on the way fetch them again.
+const ICON_VERSION = "2";
+// File names match scripts/fetch-icons.mjs fileOf: anything outside [a-z0-9-] becomes a dash.
+const iconFile = (id: string): string => `${ICON_BASE}/${id.toLowerCase().replace(/[^a-z0-9-]/g, "-")}.png?v=${ICON_VERSION}`;
+export const tokenIcon = (t: TokenInfo): string | null => (t.coingeckoId ? iconFile(t.coingeckoId) : null);
+export const chainIcon = (chain: string): string => iconFile(`chain-${chain}`);
 
 /** The token is the chain's own coin, so a chain badge adds nothing. */
 const NATIVE: Record<string, string> = {
