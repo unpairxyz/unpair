@@ -15,6 +15,8 @@ const CHAIN_COIN = {
   dash: "dash", zec: "zcash", tron: "tron", ton: "the-open-network", stellar: "stellar", xrp: "ripple", cardano: "cardano",
   near: "near", sui: "sui", aptos: "aptos", movement: "movement", starknet: "starknet", aleo: "aleo",
 };
+// Chains with no coin of their own -> CoinGecko asset platform id, whose logo is used instead.
+const CHAIN_PLATFORM = { base: "base", abs: "abstract", adi: "adi-chain", fogo: "fogo", hood: "robinhood" };
 
 const tokens = await (await fetch(`${ONECLICK}/v0/tokens`)).json();
 const ids = [...new Set([...tokens.map((t) => t.coingeckoId).filter(Boolean), ...Object.values(CHAIN_COIN)])];
@@ -36,4 +38,9 @@ const save = async (name, src) => {
 let n = 0;
 for (const [id, src] of images) if (await save(`${id}.png`, src)) n++;
 for (const [chain, id] of Object.entries(CHAIN_COIN)) if (images.has(id) && (await save(`chain-${chain}.png`, images.get(id)))) n++;
+const platforms = await (await fetch("https://api.coingecko.com/api/v3/asset_platforms")).json();
+for (const [chain, id] of Object.entries(CHAIN_PLATFORM)) {
+  const src = platforms.find((p) => p.id === id)?.image?.small;
+  if (src && (await save(`chain-${chain}.png`, src))) n++;
+}
 console.log(`saved ${n} icons to public/icons/ (${ids.length - images.size} ids without an image)`);
