@@ -1,10 +1,14 @@
 # Dependency updates, batched so they do not flood the tree, against develop
 # like every other change; main only receives merges from develop. Vendored
-# crates under vendor/ are path dependencies and are not touched.
+# crates under vendor/ are path dependencies and are not touched. Major
+# versions of crates and npm packages are left to a person: the Zcash crates
+# pin their own versions of shared dependencies, and a major bump needs code.
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/browser-wallet
     target-branch: develop
     schedule:
       interval: weekly
@@ -16,6 +20,9 @@ updates:
     target-branch: develop
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       cargo:
         patterns: ["*"]
@@ -24,6 +31,9 @@ updates:
     target-branch: develop
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]
