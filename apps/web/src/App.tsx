@@ -40,8 +40,9 @@ import {
   Legs,
   Mascot,
   Masthead,
-  QuoteMark,
-  Qr,
+  PhoneCheck,
+  VerifyHero,
+  VerifyStrip,
   Sprites,
   StatusStrip,
   Story,
@@ -575,7 +576,7 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
 }
 
 /** A quote the user pays from their own wallet, tracked on 1Click until it lands or returns. */
-function OwnTracking({ quote, signed, verified, token, direction, shielded, quiet, onStage, onDone, onSendOut }: {
+function OwnTracking({ quote, signed, verified, token, direction, shielded, quiet, onStage, onDone, onSendOut, second = false }: {
   quote: QuoteResponse;
   signed: SignedQuote | null;
   verified: boolean | null;
@@ -586,12 +587,16 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   onStage: (s: HeroStage) => void;
   onDone: () => void;
   onSendOut: () => void;
+  /** Opened from a parked link on a second device: the check comes first, and no QR to scan. */
+  second?: boolean;
 }) {
   const q = quote.quote;
   const depositAddress = q.depositAddress ?? "";
   const memo = q.depositMemo;
   const [sent, setSent] = useState(false);
   const [parked, setParked] = useState<string | null>(null);
+  const [parkError, setParkError] = useState<string | null>(null);
+  const [phone, setPhone] = useState(false);
   const pollFn = useMemo(() => (depositAddress ? () => (api ? api.status(depositAddress, memo) : client.status(depositAddress, memo)) : null), [depositAddress, memo]);
   const [final, setFinal] = useState(false);
   const { value: status, error } = usePoll<StatusResponse>(pollFn, final);
@@ -614,7 +619,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
       const r = await api.parkQuote(signed);
       setParked(`${window.location.origin}${window.location.pathname}?q=${r.id}`);
     } catch (e) {
-      setParked(describeError(e));
+      setParkError(describeError(e));
     }
   }
 
@@ -648,19 +653,22 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
           <b>{direction === "out" ? "PAY THE ROUTE" : "SEND IT!"}</b>
           <span className="chip">{direction === "out" ? "from your shielded wallet" : `on ${chainLabel(token.blockchain)}`}</span>
         </div>
-        <div className="markrow">
-          <QuoteMark seed={seed} />
-          <div>
-            <b>{signed && verified ? "Quote signed by Unpair" : "Quote signed by the route"}</b> <span className="code">{shortCode(seed)}</span>
-          </div>
-        </div>
+        {second ? (
+          <VerifyHero seed={seed} code={shortCode(seed)} verified={Boolean(signed && verified)} />
+        ) : (
+          <VerifyStrip
+            seed={seed}
+            code={shortCode(seed)}
+            signedBy={signed && verified ? "Signed by Unpair" : "Signed by the route"}
+            {...(api && signed ? { onPhone: () => { setPhone(true); if (!parked) void park(); } } : {})}
+          />
+        )}
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {direction === "out" ? "ZEC" : token.symbol}</div></div>
-        <div className="box"><span className="lbl">{direction === "out" ? "To the route's Zcash address, once" : "To this address, once"}</span><Address value={depositAddress} qr /></div>
+        <div className="box"><span className="lbl">{direction === "out" ? "To the route's Zcash address, once" : "To this address, once"}</span><Address value={depositAddress} qr={!second} /></div>
         {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
         {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
         <Mascot>{direction === "out" ? "Pay from your shielded balance, not from a transparent one, or the hop is linkable." : "I'm waiting at the edge. Send from any wallet you control."}</Mascot>
-        {api && signed && !parked && <button type="button" className="mini" onClick={() => void park()}>Check on your phone</button>}
-        {parked && <div className="box"><span className="lbl">Scan this with your phone</span>{parked.startsWith("http") && <Qr value={parked} label="QR code to open this quote on your phone" />}<Address value={parked} /><p className="fine">The phone must show the same mark and code. Anyone with the link sees this quote. It lives on the server for two hours.</p></div>}
+        <PhoneCheck open={phone} url={parked} error={parkError} seed={seed} code={shortCode(seed)} onClose={() => setPhone(false)} />
         <GoButton onClick={() => { setSent(true); onStage("seen"); }}>I SENT IT!</GoButton>
         <p className="fine"><button type="button" className="link" onClick={onDone}>Start over</button></p>
       </div>
@@ -736,10 +744,7 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
     return (
       <div>
         <div className="wtitle"><b>SEND IT!</b><span className="chip">on {chainLabel(inToken?.blockchain ?? "")}</span></div>
-        <div className="markrow">
-          <QuoteMark seed={seed} />
-          <div><b>{verified ? "Quote signed by Unpair" : "Quote from the server"}</b> <span className="code">{shortCode(seed)}</span></div>
-        </div>
+        <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={verified ? "Signed by Unpair" : "Quote from the server"} />
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{amountIn}</div></div>
         <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} qr /></div>
         {swap.deposit_memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{swap.deposit_memo}</div></div>}
@@ -801,5 +806,5 @@ function ParkedQuote({ id, tokens, onStage, onDone }: { id: string; tokens: Toke
   const direction = req.originAsset.includes("zec.omft") ? "out" : "in";
   const token = tokens.find((t) => t.assetId === (direction === "out" ? req.destinationAsset : req.originAsset)) ?? null;
   if (!token) return <p className="fine">Loading tokens.</p>;
-  return <OwnTracking quote={signed.quote.quote} signed={signed.quote} verified={signed.verified} token={token} direction={direction} shielded={false} quiet={false} onStage={onStage} onDone={onDone} onSendOut={onDone} />;
+  return <OwnTracking quote={signed.quote.quote} signed={signed.quote} verified={signed.verified} token={token} direction={direction} shielded={false} quiet={false} onStage={onStage} onDone={onDone} onSendOut={onDone} second />;
 }

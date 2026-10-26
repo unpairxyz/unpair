@@ -8,9 +8,14 @@ export function QuoteMark({ seed, size = 62, className }: { seed: string; size?:
   const cv = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const draw = () => cv.current && drawMark(cv.current, seed);
+    // a frame later too: a mark inside a dialog has no size until the dialog opens
     draw();
+    const raf = requestAnimationFrame(draw);
     addEventListener(THEME_EVENT, draw);
-    return () => removeEventListener(THEME_EVENT, draw);
+    return () => {
+      cancelAnimationFrame(raf);
+      removeEventListener(THEME_EVENT, draw);
+    };
   }, [seed, size]);
   return <canvas ref={cv} className={className} role="img" aria-label="Quote mark" style={{ width: size, height: size }} />;
 }
