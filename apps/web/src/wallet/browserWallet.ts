@@ -61,6 +61,11 @@ export function parseRecovery(text: string, network: ZcashNetwork): Recovery {
   return out;
 }
 
+/** Loading the 9 MB module and reading the chain tip; slow links need minutes. */
+const OPEN_TIMEOUT_MS = 180_000;
+/** A short call that only reads the wallet. */
+const CALL_TIMEOUT_MS = 30_000;
+
 export class BrowserWallet {
   private worker: Worker;
   private next = 1;
@@ -86,28 +91,59 @@ export class BrowserWallet {
   /** A fresh wallet, scanning from the chain tip. */
   static async create(network: ZcashNetwork, grpcWebUrl: string): Promise<BrowserWallet> {
     const w = new BrowserWallet(network);
-    await w.call({ op: "open", network, url: grpcWebUrl });
+    try {
+      await w.call({ op: "open", network, url: grpcWebUrl }, OPEN_TIMEOUT_MS);
+    } catch (e) {
+      w.close();
+      throw e;
+    }
     return w;
   }
 
   /** The wallet from a recovery file, scanning from its birthday. */
   static async recover(r: Recovery, grpcWebUrl: string): Promise<BrowserWallet> {
     const w = new BrowserWallet(r.network);
-    await w.call({ op: "open", network: r.network, url: grpcWebUrl, phrase: r.phrase, birthday: r.birthday });
+    try {
+      await w.call({ op: "open", network: r.network, url: grpcWebUrl, phrase: r.phrase, birthday: r.birthday }, OPEN_TIMEOUT_MS);
+    } catch (e) {
+      w.close();
+      throw e;
+    }
     return w;
   }
 
-  private call(request: WalletRequest): Promise<unknown> {
+  /**
+   * One request to the worker. A timeout turns a call that never answers,
+   * such as a wallet server that stops mid-stream, into an error the page
+   * can show; proving and scanning run without one.
+   */
+  private call(request: WalletRequest, timeoutMs?: number): Promise<unknown> {
     const id = this.next++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      let timer: number | null = null;
+      if (timeoutMs) {
+        timer = window.setTimeout(() => {
+          if (!this.pending.delete(id)) return;
+          reject(new Error("The wallet server did not answer in time. Check the connection and try again."));
+        }, timeoutMs);
+      }
+      this.pending.set(id, {
+        resolve: (v) => {
+          if (timer) window.clearTimeout(timer);
+          resolve(v);
+        },
+        reject: (e) => {
+          if (timer) window.clearTimeout(timer);
+          reject(e);
+        },
+      });
       const env: WalletEnvelope = { id, request };
       this.worker.postMessage(env);
     });
   }
 
   nextLanding(): Promise<Landing> {
-    return this.call({ op: "landing" }) as Promise<Landing>;
+    return this.call({ op: "landing" }, CALL_TIMEOUT_MS) as Promise<Landing>;
   }
 
   /** Scan to the tip. Returns the tip height. */
