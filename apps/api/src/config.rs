@@ -80,7 +80,8 @@ pub struct GeofenceConfig {
     pub blocked_countries: Vec<String>,
     /// Header that carries the country, for example `cf-ipcountry` behind Cloudflare.
     pub country_header: String,
-    /// Refuse requests with no country header. Default true in production.
+    /// Refuse requests with no country header. Default true. Set it false only
+    /// for local development, where no proxy adds the header.
     pub require_header: bool,
 }
 
@@ -190,7 +191,7 @@ impl Config {
             country_header: var("UNPAIR_COUNTRY_HEADER")
                 .unwrap_or_else(|| "cf-ipcountry".into())
                 .to_lowercase(),
-            require_header: bool_var("UNPAIR_GEOFENCE_REQUIRE_HEADER", false)?,
+            require_header: bool_var("UNPAIR_GEOFENCE_REQUIRE_HEADER", true)?,
         };
 
         let hosted = match var("UNPAIR_WALLET_SEED_FILE") {

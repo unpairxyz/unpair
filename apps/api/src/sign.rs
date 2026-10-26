@@ -57,7 +57,6 @@ impl QuoteSigner {
         base64::engine::general_purpose::STANDARD.encode(sig.to_bytes())
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn verify<T: Serialize>(
         public_key_hex: &str,
         signature_b64: &str,

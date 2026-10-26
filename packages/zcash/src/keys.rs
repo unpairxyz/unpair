@@ -106,6 +106,16 @@ pub fn landing_at(ufvk: &UnifiedFullViewingKey, j: DiversifierIndex) -> Result<L
     })
 }
 
+/// The landing at exactly `index`. Used to take back a landing that was
+/// handed out before and never paid. Fails if that index is not valid.
+pub fn landing_at_exact(ufvk: &UnifiedFullViewingKey, index: u32) -> Result<Landing, Error> {
+    let l = landing_at(ufvk, DiversifierIndex::from(index))?;
+    if u32::try_from(l.index).ok() != Some(index) {
+        return Err(Error::Address(format!("no landing at index {index}")));
+    }
+    Ok(l)
+}
+
 /// A unified address at diversifier index `j` with only an Orchard receiver.
 /// A route that can pay Ironwood directly, such as 1Click, pays this and the
 /// value lands shielded with no transparent step. It must have no transparent

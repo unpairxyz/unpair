@@ -7,7 +7,7 @@
  * wallet in a new tab and finishes from the pool.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ZEC_DECIMALS, formatUnits, roundDownCoarse, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
+import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
 import { api, client, config, describeError, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { Address, DoneBurst, GoButton, Mascot, StatusStrip, VerifyStrip, type HeroStage } from "./ui";
@@ -164,8 +164,8 @@ export function BrowserSwap(props: Props) {
         setBalance(b);
         let amount = BigInt(b.ironwood_spendable) - HOP2_FEE_RESERVE_ZAT;
         if (amount <= 0n) throw new Error("Nothing to send.");
-        // quiet mode sends a round amount, so the two hops do not match by value; the rest stays in this wallet
-        if (plan.mode === "quiet") amount = roundDownCoarse(amount).amount;
+        // quiet mode sends an amount cut to two digits, so the two hops do not match to the unit; the rest, under a tenth, stays in this wallet
+        if (plan.mode === "quiet") amount = roundDownSignificant(amount, 2).amount;
         setWorking("Asking the route for a quote.");
         const landing = await wallet.nextLanding();
         const request: QuoteInput = {
@@ -332,7 +332,7 @@ export function BrowserSwap(props: Props) {
         <div className="wtitle"><b>{phase === "out" ? "HOP TWO" : "IN THE POOL"}</b>{balance?.scanned_to ? <span className="code">block {balance.scanned_to}</span> : null}</div>
         <StatusStrip current={phase === "out" ? 3 : 2} texts={{ 0: "Deposit seen.", 1: "Swapped into ZEC.", 2: poolText, 3: phase === "out" ? poolText : `The tab pays ${outToken?.symbol ?? "the asset"} to your address.` }} />
         {hop2?.txid && <p className="fine">Zcash transaction <span className="code">{hop2.txid.slice(0, 12)}…</span></p>}
-        {hop2?.txid && plan?.mode === "quiet" && <p className="fine">Quiet mode sent a round amount. What is left stays in this wallet, and the recovery file can spend it.</p>}
+        {hop2?.txid && plan?.mode === "quiet" && <p className="fine">Quiet mode sent a rounded amount. The small rest stays in this wallet, and the recovery file can spend it.</p>}
         {error && <p className="err-line">{error}</p>}
         {phase === "out" && error && <GoButton onClick={retryOut}>TRY HOP TWO AGAIN</GoButton>}
         {phase === "pool" && release && canSend && <GoButton onClick={() => setPhase("out")}>SEND NOW INSTEAD</GoButton>}

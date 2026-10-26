@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tokio::sync::oneshot;
-use unpair_zcash::keys::{orchard_only_at, Seed};
+use unpair_zcash::keys::{landing_at_exact, orchard_only_at, Landing, Seed};
 use unpair_zcash::lightwalletd::{default_endpoints, Connector, Pool};
 use unpair_zcash::send::upgrade_notice;
 use unpair_zcash::wallet::{warm_proving_key, Balance, ShieldPolicy, ShieldWallet};
@@ -85,6 +85,10 @@ type PayRequest = (String, u64, oneshot::Sender<Result<PayoutInfo, String>>);
 
 enum Cmd {
     NextLanding(oneshot::Sender<Result<LandingInfo, String>>),
+    LandingAt {
+        index: u32,
+        reply: oneshot::Sender<Result<LandingInfo, String>>,
+    },
     Report(oneshot::Sender<Report>),
     Pay {
         to: String,
@@ -110,6 +114,12 @@ impl WalletHandle {
 
     pub async fn next_landing(&self) -> Result<LandingInfo, String> {
         self.ask(Cmd::NextLanding).await?
+    }
+
+    /// The landing handed out before at `index`, for a swap that never got
+    /// its deposit. Reusing it keeps the wallet's address gap small.
+    pub async fn landing_at(&self, index: u32) -> Result<LandingInfo, String> {
+        self.ask(|reply| Cmd::LandingAt { index, reply }).await?
     }
 
     pub async fn report(&self) -> Result<Report, String> {
@@ -240,6 +250,9 @@ async fn run<C: Connector>(
                 Cmd::NextLanding(reply) => {
                     let _ = reply.send(next_landing(slot.as_mut(), &net));
                 }
+                Cmd::LandingAt { index, reply } => {
+                    let _ = reply.send(landing_at(slot.as_ref(), &net, index));
+                }
                 Cmd::Report(reply) => {
                     fill(&mut report, slot.as_ref(), &shields, &payouts);
                     let _ = reply.send(report.clone());
@@ -281,6 +294,20 @@ async fn run<C: Connector>(
 fn next_landing(wallet: Option<&mut ShieldWallet>, net: &Network) -> Result<LandingInfo, String> {
     let w = wallet.ok_or_else(|| "wallet is busy".to_string())?;
     let l = w.next_landing().map_err(|e| e.to_string())?;
+    landing_info(w, l, net)
+}
+
+fn landing_at(
+    wallet: Option<&ShieldWallet>,
+    net: &Network,
+    index: u32,
+) -> Result<LandingInfo, String> {
+    let w = wallet.ok_or_else(|| "wallet is busy".to_string())?;
+    let l = landing_at_exact(w.ufvk(), index).map_err(|e| e.to_string())?;
+    landing_info(w, l, net)
+}
+
+fn landing_info(w: &ShieldWallet, l: Landing, net: &Network) -> Result<LandingInfo, String> {
     let (shielded, index) = orchard_only_at(w.ufvk(), l.index).map_err(|e| e.to_string())?;
     if index != l.index {
         return Err("shielded and transparent receivers are at different indexes".into());
@@ -377,6 +404,13 @@ async fn cycle<C: Connector>(
     let txs = match shielded {
         Ok(txs) => txs,
         Err(unpair_zcash::Error::NothingToShield) => return Ok((tip, Ok(vec![]))),
+        // A wallet with nothing scanned yet cannot select inputs. There is
+        // nothing to shield until a block has been scanned.
+        Err(unpair_zcash::Error::Shield(t))
+            if t.contains("ScanRequired") || t.contains("SyncRequired") =>
+        {
+            return Ok((tip, Ok(vec![])))
+        }
         Err(e) => return Ok((tip, Err(e.to_string()))),
     };
     let mut sent = Vec::new();
