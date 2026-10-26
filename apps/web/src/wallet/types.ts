@@ -54,7 +54,7 @@ export interface WasmWallet {
 }
 
 export interface WasmModule {
-  default(options?: { module_or_path?: string | URL }): Promise<unknown>;
+  default(options?: { module_or_path?: string | URL | WebAssembly.Module }): Promise<unknown>;
   WebWallet: {
     open(network: ZcashNetwork, grpcWebUrl: string, phrase?: string, birthdayHeight?: number): Promise<WasmWallet>;
   };
@@ -62,6 +62,7 @@ export interface WasmModule {
 
 /** What the page asks the worker to do. One wallet per worker. */
 export type WalletRequest =
+  | { op: "load" }
   | { op: "open"; network: ZcashNetwork; url: string; phrase?: string; birthday?: number }
   | { op: "landing" }
   | { op: "sync" }

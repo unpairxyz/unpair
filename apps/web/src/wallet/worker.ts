@@ -21,7 +21,12 @@ function loadModule(): Promise<WasmModule> {
     const wasm = new URL("wasm/unpair_zcash_bg.wasm", base);
     loading = import(/* @vite-ignore */ js.href)
       .then(async (m: WasmModule) => {
-        await m.default({ module_or_path: wasm });
+        // The bytes first, then one compile. WebKit takes minutes to compile this module from a stream
+        // and seconds from a buffer; the other engines do not mind either way.
+        const res = await fetch(wasm);
+        if (!res.ok) throw new Error(`fetch of the wallet module failed (${res.status})`);
+        const mod = await WebAssembly.compile(await res.arrayBuffer());
+        await m.default({ module_or_path: mod });
         return m;
       })
       .catch((e: unknown) => {
@@ -42,6 +47,9 @@ function need(): WasmWallet {
 
 async function handle(r: WalletRequest): Promise<unknown> {
   switch (r.op) {
+    case "load":
+      await loadModule();
+      return null;
     case "open": {
       const m = await loadModule();
       if (wallet) wallet.free();
