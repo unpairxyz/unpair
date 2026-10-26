@@ -202,8 +202,16 @@ fn release_landing(hosted: &crate::routes::Hosted, swap: &Swap) {
 
 /// Try again later. Passing faults do not count as attempts.
 fn back_off(part: &mut Part, now: u64, error: String) {
+    back_off_for(part, now, error, TRANSIENT_BACKOFF_SECS);
+}
+
+/// A short wait for a note that is only waiting for confirmations: the next
+/// tick looks again, so a landing moves on within a minute of being spendable.
+const CONFIRMING_BACKOFF_SECS: u64 = 60;
+
+fn back_off_for(part: &mut Part, now: u64, error: String, secs: u64) {
     part.last_error = Some(error);
-    part.release_at_unix = now.saturating_add(TRANSIENT_BACKOFF_SECS);
+    part.release_at_unix = now.saturating_add(secs);
 }
 
 /// Move every part of a swap forward: poll the ones the route is filling,
@@ -327,13 +335,14 @@ async fn pay_part(state: &AppState, swap: &Swap, part: &mut Part, now: u64) {
             spendable = report.balance.ironwood_spendable,
             "payout held: spendable below what is committed"
         );
-        return back_off(
+        return back_off_for(
             part,
             now,
             format!(
                 "spendable {} below committed {}",
                 report.balance.ironwood_spendable, committed
             ),
+            CONFIRMING_BACKOFF_SECS,
         );
     }
 
