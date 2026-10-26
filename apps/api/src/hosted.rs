@@ -170,6 +170,20 @@ pub struct Swap {
     pub last_error: Option<String>,
     /// Zatoshis under the smallest part size that stay in the transit wallet.
     pub dust_zat: Option<u64>,
+    /// What a dry hop-two quote said the user would get, taken at creation.
+    pub estimate_out: Option<String>,
+}
+
+/// What hop two would send on if hop one delivered `received`: the capped
+/// amount minus the reserve, or the sum of the standard parts when the
+/// quiet-mode split is on. The dry estimate quotes this amount.
+pub fn hop2_estimate_basis(received: u64, split: bool, max_zat: u64) -> u64 {
+    let capped = received.min(max_zat);
+    if split {
+        split_amount(capped, true).parts.iter().sum()
+    } else {
+        capped.saturating_sub(HOP2_FEE_RESERVE_ZAT)
+    }
 }
 
 /// One payout of hop two. A fast swap has one part for the full amount; a
@@ -309,6 +323,7 @@ pub struct SwapView {
     pub parts_delivered: u32,
     pub parts: Vec<PartView>,
     pub dust_zat: Option<u64>,
+    pub estimate_out: Option<String>,
 }
 
 impl Swap {
@@ -346,6 +361,7 @@ impl Swap {
                 })
                 .collect(),
             dust_zat: self.dust_zat,
+            estimate_out: self.estimate_out.clone(),
         }
     }
 }
@@ -463,7 +479,8 @@ CREATE TABLE IF NOT EXISTS swaps (
     note TEXT,
     last_error TEXT,
     hop2_paying_unix INTEGER,
-    dust_zat INTEGER
+    dust_zat INTEGER,
+    estimate_out TEXT
 );
 CREATE INDEX IF NOT EXISTS swaps_state ON swaps(state);
 CREATE TABLE IF NOT EXISTS free_landings (
@@ -491,9 +508,13 @@ CREATE INDEX IF NOT EXISTS hop2_parts_state ON hop2_parts(state);
 
 /// Columns added after the first release. Each is added when missing, so an
 /// older database is brought up to date on open and a newer one is left alone.
-const ADDED_COLUMNS: &[(&str, &str)] = &[("hop2_paying_unix", "INTEGER"), ("dust_zat", "INTEGER")];
+const ADDED_COLUMNS: &[(&str, &str)] = &[
+    ("hop2_paying_unix", "INTEGER"),
+    ("dust_zat", "INTEGER"),
+    ("estimate_out", "TEXT"),
+];
 
-const COLUMNS: &str = "id, created_unix, updated_unix, mode, state, landing_index, landing_shielded, landing_transparent, origin_asset, destination_asset, destination_address, refund_to, slippage_bps, hop1_deposit_address, hop1_deposit_memo, hop1_amount_in, hop1_deadline_unix, hop1_quote, zec_received, release_at_unix, hop2_amount_in, hop2_deposit_address, hop2_quote, hop2_txid, delivered_amount, delivered_tx, attempts, note, last_error, hop2_paying_unix, dust_zat";
+const COLUMNS: &str = "id, created_unix, updated_unix, mode, state, landing_index, landing_shielded, landing_transparent, origin_asset, destination_asset, destination_address, refund_to, slippage_bps, hop1_deposit_address, hop1_deposit_memo, hop1_amount_in, hop1_deadline_unix, hop1_quote, zec_received, release_at_unix, hop2_amount_in, hop2_deposit_address, hop2_quote, hop2_txid, delivered_amount, delivered_tx, attempts, note, last_error, hop2_paying_unix, dust_zat, estimate_out";
 
 const PART_COLUMNS: &str = "swap_id, idx, amount_zat, release_at_unix, deposit_address, quote, paying_unix, txid, state, delivered_amount, delivered_tx, attempts, last_error, updated_unix";
 
@@ -536,7 +557,7 @@ impl Store {
 
     fn insert_row(conn: &Connection, s: &Swap) -> Result<(), ApiError> {
         conn.execute(
-            &format!("INSERT INTO swaps ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31)"),
+            &format!("INSERT INTO swaps ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)"),
             params![
                 s.id,
                 s.created_unix as i64,
@@ -569,6 +590,7 @@ impl Store {
                 s.last_error,
                 s.hop2_paying_unix.map(|v| v as i64),
                 s.dust_zat.map(|v| v as i64),
+                s.estimate_out,
             ],
         )
         .map_err(internal)?;
@@ -896,6 +918,7 @@ fn row_to_swap(r: &rusqlite::Row<'_>) -> rusqlite::Result<Swap> {
         last_error: r.get(28)?,
         hop2_paying_unix: r.get::<_, Option<i64>>(29)?.map(|v| v as u64),
         dust_zat: r.get::<_, Option<i64>>(30)?.map(|v| v as u64),
+        estimate_out: r.get(31)?,
     })
 }
 
@@ -1020,7 +1043,21 @@ mod tests {
             last_error: None,
             hop2_paying_unix: None,
             dust_zat: None,
+            estimate_out: None,
         }
+    }
+
+    #[test]
+    fn estimate_basis_follows_the_payout_rule() {
+        let max = 100_000_000;
+        assert_eq!(hop2_estimate_basis(1_000_000, false, max), 980_000);
+        assert_eq!(hop2_estimate_basis(493_020_000, false, max), 99_980_000);
+        let split = split_amount(37_000_000, true);
+        assert_eq!(
+            hop2_estimate_basis(37_000_000, true, max),
+            split.parts.iter().sum::<u64>()
+        );
+        assert_eq!(hop2_estimate_basis(10_000, false, max), 0);
     }
 
     #[test]

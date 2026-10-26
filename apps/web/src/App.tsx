@@ -24,12 +24,14 @@ import { BrowserSwap } from "./BrowserSwap";
 import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWallet";
 import type { Landing } from "./wallet/types";
+import { hop2FeeReserveZat } from "./wallet/fees";
 import {
   Address,
   AddressRow,
   AddressRows,
   CardHead,
   DoneBurst,
+  Facts,
   Footer,
   GoButton,
   Hero,
@@ -49,8 +51,17 @@ import {
   Story,
   Summary,
   TokenButton,
+  TxLink,
+  YouGet,
+  depositWait,
+  short,
+  useElapsed,
+  useEndTime,
+  OUT_WAIT,
+  POOL_WAIT,
   TokenPicker,
   WidgetPanel,
+  type Fact,
   type HeroStage,
 } from "./ui";
 import { chainLabel } from "./ui/tokens";
@@ -66,12 +77,12 @@ export function App() {
   const [view, setView] = useState<View>("in");
   const [stage, setStage] = useState<HeroStage>("form");
   const [quiet, setQuiet] = useState(false);
-  const [resume] = useState<{ swap?: string; parked?: string }>(() => {
+  const [resume] = useState<{ swap?: string; parked?: string; check?: boolean }>(() => {
     const p = new URLSearchParams(window.location.search);
     const swap = p.get("swap");
     const parked = p.get("q");
     return {
-      ...(swap && /^[0-9a-f]{32}$/.test(swap) ? { swap } : {}),
+      ...(swap && /^[0-9a-f]{32}$/.test(swap) ? { swap, check: p.get("check") === "1" } : {}),
       ...(parked && /^[0-9a-f]{32}$/.test(parked) ? { parked } : {}),
     };
   });
@@ -106,7 +117,7 @@ export function App() {
           )}
           {tokensError && <p className="err-line">Token list failed: {tokensError}</p>}
           {resume.swap && api ? (
-            <HostedTracking id={resume.swap} tokens={tokens} verified={null} onStage={setStage} onDone={leaveResume} />
+            <HostedTracking id={resume.swap} tokens={tokens} verified={null} second={resume.check ?? false} onStage={setStage} onDone={leaveResume} />
           ) : resume.parked && api ? (
             <ParkedQuote id={resume.parked} tokens={tokens} onStage={setStage} onDone={leaveResume} />
           ) : view === "in" ? (
@@ -223,8 +234,11 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const hops = custody === "browser" ? 2 : 1;
   // what the button says while the form works: the one-time wallet has a loading step before the quote
   const [busyText, setBusyText] = useState("GETTING A QUOTE");
-  const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction) ** hops) / b.price : 0;
+  // the two-hop keepers keep a network fee reserve back from the ZEC before hop two; it comes off the estimate too
+  const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(hop2FeeReserveZat(1), ZEC_DECIMALS)) * zec.price) / b.price : 0;
+  const out = a && b && b.price > 0 ? Math.max(0, (sendNum * a.price * (1 - feeFraction) ** hops) / b.price - reserveOut) : 0;
   const minOut = out * (1 - slippage / 10_000);
+  const small = a !== null && sendNum > 0 && sendNum * a.price < 20;
   // the same token in and out is fine through the pool: two hops, and only the link is gone
   const same = sameToken(a, b);
   const pickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
@@ -435,6 +449,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       {a && b && plan && !(same && custody === "own") && (
         <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
       )}
+      {small && a && b && plan && <p className="fine">Small swaps lose more to fixed network fees. The exact amount comes with the quote.</p>}
       {custody === "server" && hostedInfo && (
         <p className="fine">
           Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.
@@ -642,6 +657,15 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   }, [current]);
   const seed = markSeed(signed, quote);
   const deadline = depositDeadline(quote);
+  // the clock starts when the route made the quote, so a second device shows the same time
+  const [start] = useState(() => {
+    const t = Date.parse(quote.timestamp);
+    return Number.isFinite(t) ? t : Date.now();
+  });
+  const elapsed = useElapsed(start, useEndTime(final));
+  const inSym = direction === "out" ? "ZEC" : token.symbol;
+  const outSym = direction === "in" ? "ZEC" : token.symbol;
+  const txRows = (status?.swapDetails.destinationChainTxHashes ?? []).map((tx, i, all): Fact => [all.length > 1 ? `Transaction ${i + 1}` : "Transaction", <TxLink hash={tx.hash} url={tx.explorerUrl} />, true]);
   // a deposit that never comes: stop polling a while after the deadline and say so
   const [late, setLate] = useState(false);
   useEffect(() => {
@@ -688,6 +712,13 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
               : copy.text}
         </p>
         {status?.swapDetails.refundReason && <p className="err-line">Reason: {status.swapDetails.refundReason}</p>}
+        <Facts rows={[
+          ["Sent", `${q.amountInFormatted} ${inSym}`, true],
+          current === "landed" && ["Got", `${q.amountOutFormatted} ${outSym}`, true],
+          ["To", short(quote.quoteRequest.recipient), true],
+          ...txRows,
+          ["Time", elapsed],
+        ]} />
         {current === "landed" && direction === "in" && (
           <Mascot face="happy" red={false}>{quiet ? "Wait a while, a few hours is good, then send out from your wallet. Longer and less regular is better." : "When you want it somewhere else, send out from your wallet."}</Mascot>
         )}
@@ -714,6 +745,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
           />
         )}
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {direction === "out" ? "ZEC" : token.symbol}</div></div>
+        <div className="box"><span className="lbl">You get</span><div className="big">{q.amountOutFormatted} {direction === "out" ? token.symbol : "ZEC"}</div></div>
         <div className="box"><span className="lbl">{direction === "out" ? "To the route's Zcash address, once" : "To this address, once"}</span><Address value={depositAddress} qr={!second} /></div>
         {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
         {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
@@ -728,10 +760,16 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   return (
     <div>
       <div className="wtitle"><b>IN PROGRESS</b><span className="code">{shortCode(seed)}</span></div>
-      <StatusStrip current={strip} texts={direction === "in" ? { 0: "Watching the deposit address.", 1: "The route swaps it into ZEC and pays your address.", 2: "Lands in your wallet's shielded pool.", 3: "That part is yours: send out from your wallet later." } : { 0: "Watching the route's address.", 1: "The route is filling your swap.", 2: "Paid from your shielded note.", 3: "Your asset arrives at your address." }} />
-      {status?.swapDetails.destinationChainTxHashes.map((tx) => (
-        <p key={tx.hash} className="fine">Transaction {tx.explorerUrl.startsWith("https://") ? <a className="code" href={tx.explorerUrl} target="_blank" rel="noopener noreferrer">{tx.hash.slice(0, 12)}…</a> : <span className="code">{tx.hash.slice(0, 12)}…</span>}</p>
-      ))}
+      <StatusStrip current={strip} texts={direction === "in"
+        ? { 0: depositWait(token.blockchain), 1: "The route swaps it into ZEC and pays your address.", 2: `Lands in your wallet. ${POOL_WAIT}`, 3: "Yours. Send out from your wallet later." }
+        : { 0: "Waits for your Zcash payment to confirm.", 1: "Credited about 10 min after it confirms.", 2: "The route fills your swap.", 3: "Your asset arrives at your address." }} />
+      <Facts rows={[
+        ["Send", `${q.amountInFormatted} ${inSym}`, true],
+        ["Get about", `${q.amountOutFormatted} ${outSym}`, true],
+        ["To", short(quote.quoteRequest.recipient), true],
+        ...txRows,
+        ["Time", elapsed],
+      ]} />
       {error && <p className="err-line">Status check failed, retrying: {error}</p>}
       {late ? (
         <p className="fine">The deadline passed and nothing arrived. If you paid late, the route refunds your deposit to the refund address.</p>
@@ -743,9 +781,10 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   );
 }
 
-/** A hosted swap, from deposit to delivery. The tab may close and come back by link. */
-function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }: { id: string; first?: HostedSwap; signed?: SignedQuote; tokens: TokenInfo[]; verified: boolean | null; onStage: (s: HeroStage) => void; onDone: () => void }) {
+/** A hosted swap, from deposit to delivery. The tab may close and come back by link. `second` is the phone check, opened from the QR. */
+function HostedTracking({ id, first, signed, tokens, verified, second = false, onStage, onDone }: { id: string; first?: HostedSwap; signed?: SignedQuote; tokens: TokenInfo[]; verified: boolean | null; second?: boolean; onStage: (s: HeroStage) => void; onDone: () => void }) {
   const [sent, setSent] = useState(false);
+  const [phone, setPhone] = useState(false);
   const pollFn = useMemo(() => {
     const a = api;
     return a ? () => a.hostedSwap(id) : null;
@@ -758,6 +797,7 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
   useEffect(() => {
     if (state && isHostedFinal(state)) setFinal(true);
   }, [state]);
+  const elapsed = useElapsed(swap ? swap.created_unix * 1000 : null, final && swap ? swap.updated_unix * 1000 : null);
 
   useEffect(() => {
     if (!state) return;
@@ -779,7 +819,9 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
   const outToken = tokens.find((t) => t.assetId === swap.destination_asset) ?? null;
   const amountIn = inToken ? `${formatUnits(BigInt(swap.amount_in), inToken.decimals)} ${inToken.symbol}` : `${swap.amount_in} base units`;
   const link = `${window.location.origin}${window.location.pathname}?swap=${swap.id}`;
-  const seed = signed ? signed.signature.slice(0, 16) : swap.id.slice(0, 16);
+  // the mark comes from the deposit address, which the phone reads from the server too, so both screens draw the same one
+  const seed = swap.deposit_address.slice(0, 16);
+  const outLabel = `${outToken?.symbol ?? ""} on ${chainLabel(outToken?.blockchain ?? "")}`;
 
   if (final) {
     return (
@@ -792,10 +834,19 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
               : `${swap.delivered_amount ?? ""} ${outToken?.symbol ?? ""} arrived on ${chainLabel(outToken?.blockchain ?? "")}. On chain, nothing links it to your deposit.`
             : copy.text}
         </p>
+        <Facts rows={[
+          ["Sent", amountIn, true],
+          swap.delivered_amount && ["Got", `${swap.delivered_amount} ${outToken?.symbol ?? ""}`, true],
+          !swap.delivered_amount && ["Receive", outLabel],
+          ["To", short(swap.destination_address), true],
+          swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total}`, true],
+          swap.delivered_tx && ["Transaction", short(swap.delivered_tx), true],
+          ["Time", elapsed],
+          ["Swap id", short(swap.id), true],
+        ]} />
         {swap.note && <p className="fine">{swap.note}</p>}
         {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
         {swap.state === "done" && <Mascot face="happy" red={false}>I stayed in the school. A fresh fish swam out to your address. The server saw both ends and forgets this swap in seven days.</Mascot>}
-        <p className="fine">Swap id {swap.id}</p>
         <GoButton ghost onClick={onDone}>NEW SWAP</GoButton>
       </div>
     );
@@ -804,13 +855,19 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
     return (
       <div>
         <div className="wtitle"><b>SEND IT!</b><span className="chip">on {chainLabel(inToken?.blockchain ?? "")}</span></div>
-        <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={verified ? "Signed by Unpair" : "Quote from the server"} />
+        {second ? (
+          <VerifyHero seed={seed} code={shortCode(seed)} verified={null} note="Loaded from the Unpair server. Same mark and code on both screens means the same swap and the same deposit address." />
+        ) : (
+          <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={verified ? "Signed by Unpair" : "Quote from the server"} {...(api ? { onPhone: () => setPhone(true) } : {})} />
+        )}
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{amountIn}</div></div>
-        <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} qr /></div>
+        {swap.estimate_out && <YouGet value={`${swap.estimate_out} ${outToken?.symbol ?? ""}`} />}
+        <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} qr={!second} /></div>
         {swap.deposit_memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{swap.deposit_memo}</div></div>}
         <p className="fine">Pay by {new Date(swap.deposit_deadline_unix * 1000).toLocaleString()}.</p>
         <div className="box"><span className="lbl">Your link to this swap</span><Address value={link} /><p className="fine">Anyone with the link sees the progress, the deposit address and your receiving address. Keep it to yourself.</p></div>
         <Mascot>You can close the tab after you pay. The server swims it through for you.</Mascot>
+        <PhoneCheck open={phone} url={`${link}&check=1`} error={null} seed={seed} code={shortCode(seed)} onClose={() => setPhone(false)} />
         <GoButton onClick={() => setSent(true)}>I SENT IT!</GoButton>
         <p className="fine"><button type="button" className="link" onClick={onDone}>Start over</button></p>
       </div>
@@ -822,14 +879,22 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
   return (
     <div>
       <div className="wtitle"><b>IN PROGRESS</b><span className="code">{shortCode(seed)}</span></div>
-      <StatusStrip current={stage < 0 ? 0 : stage} {...(poolText ? { texts: { 2: poolText } } : {})} />
-      <dl className="det" style={{ display: "block" }}>
-        <dt>Receive</dt>
-        <dd>{outToken?.symbol ?? swap.destination_asset} on {chainLabel(outToken?.blockchain ?? "")} at {swap.destination_address.slice(0, 10)}…</dd>
-        {swap.zec_received !== null && <><dt>In the pool</dt><dd>{formatUnits(BigInt(swap.zec_received), ZEC_DECIMALS)} ZEC</dd></>}
-        {swap.parts_total > 1 && <><dt>Parts</dt><dd>{swap.parts_delivered} of {swap.parts_total} delivered</dd></>}
-        {swap.hop2_txid && <><dt>Zcash tx</dt><dd className="code">{swap.hop2_txid.slice(0, 12)}…</dd></>}
-      </dl>
+      <StatusStrip current={stage < 0 ? 0 : stage} texts={{
+        0: depositWait(inToken?.blockchain ?? ""),
+        1: "The route swaps it into ZEC for the server.",
+        2: poolText ?? (swap.mode === "quiet" ? `${POOL_WAIT} Then a random wait.` : POOL_WAIT),
+        3: swap.parts_total > 1 ? `${swap.parts_delivered} of ${swap.parts_total} parts paid. ${OUT_WAIT}` : OUT_WAIT,
+      }} />
+      <Facts rows={[
+        ["Sent", amountIn, true],
+        ["Receive", outLabel],
+        swap.estimate_out && !swap.delivered_amount && ["Get about", `${swap.estimate_out} ${outToken?.symbol ?? ""}`, true],
+        ["To", short(swap.destination_address), true],
+        swap.zec_received !== null && ["In the pool", `${formatUnits(BigInt(swap.zec_received), ZEC_DECIMALS)} ZEC`, true],
+        swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total} delivered`, true],
+        swap.hop2_txid && ["Zcash tx", short(swap.hop2_txid), true],
+        ["Time", elapsed],
+      ]} />
       {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
       <div className="box"><span className="lbl">Your link</span><Address value={link} /></div>
       {swap.note && <p className="fine">{swap.note}</p>}

@@ -431,6 +431,55 @@ fn hosted_of(s: &AppState) -> Result<&Hosted, ApiError> {
 }
 
 /// Start a hosted swap: screen, take a fresh landing, quote hop one to it.
+/// A dry hop-two quote at creation, so the page can say what the user gets
+/// before the deposit. Hop two carries no routing fee. Never fails the create.
+#[allow(clippy::too_many_arguments)]
+async fn hop2_estimate(
+    s: &AppState,
+    h: &Hosted,
+    mode: Mode,
+    destination_asset: &str,
+    amount_out: u64,
+    refund_to: &str,
+    recipient: &str,
+    slippage: u32,
+    now: u64,
+) -> Option<String> {
+    let basis = hosted::hop2_estimate_basis(
+        amount_out,
+        mode == Mode::Quiet && h.config.split,
+        h.config.max_zat,
+    );
+    if basis == 0 {
+        return None;
+    }
+    let body = serde_json::json!({
+        "dry": true,
+        "swapType": "EXACT_INPUT",
+        "slippageTolerance": slippage,
+        "originAsset": hosted::ZEC_ASSET,
+        "depositType": "ORIGIN_CHAIN",
+        "destinationAsset": destination_asset,
+        "amount": basis.to_string(),
+        "refundTo": refund_to,
+        "refundType": "ORIGIN_CHAIN",
+        "recipient": recipient,
+        "recipientType": "DESTINATION_CHAIN",
+        "deadline": hosted::rfc3339(now.saturating_add(15 * 60)),
+    });
+    match s.oneclick.quote(body, None::<Vec<AppFee>>).await {
+        Ok(q) => q
+            .get("quote")
+            .and_then(|q| q.get("amountOutFormatted"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        Err(e) => {
+            tracing::info!(error = %e, "hop two estimate unavailable");
+            None
+        }
+    }
+}
+
 async fn hosted_create(
     State(s): State<Shared>,
     headers: HeaderMap,
@@ -550,6 +599,18 @@ async fn hosted_create(
     let signature = s
         .signer
         .sign(&s.config.fee_recipient, s.config.fee_bps, &quote);
+    let estimate_out = hop2_estimate(
+        &s,
+        h,
+        req.mode,
+        &req.destination_asset,
+        amount_out,
+        &landing.transparent,
+        &recipient,
+        slippage,
+        now,
+    )
+    .await;
 
     let swap = Swap {
         id: new_id(),
@@ -583,6 +644,7 @@ async fn hosted_create(
         last_error: None,
         hop2_paying_unix: None,
         dust_zat: None,
+        estimate_out,
     };
     if !h.store.insert_if_below(&swap, h.config.max_open)? {
         let _ = h.store.release_landing(landing.index);
