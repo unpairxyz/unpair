@@ -41,6 +41,7 @@ import {
   Mascot,
   Masthead,
   PhoneCheck,
+  QuickPicks,
   VerifyHero,
   VerifyStrip,
   Sprites,
@@ -115,7 +116,7 @@ export function App() {
           )}
         </WidgetPanel>
         <Story />
-        <InfoTiles feePercent={feePercent} capPercent="1%" />
+        <InfoTiles feePercent={feePercent} capPercent="1%" chips={KEEPER_CHIPS} />
       </main>
       <Footer />
     </>
@@ -144,12 +145,12 @@ function useZcashCheck(address: string): AddressCheck | null {
   return check;
 }
 
-function Details({ a, b, amount, out, minOut, eta, time }: { a: TokenInfo; b: TokenInfo; amount: number; out: number; minOut: number; eta: string; time: string }) {
+function Details({ a, b, amount, out, minOut, eta, time, fee: feeLabel = feePercent }: { a: TokenInfo; b: TokenInfo; amount: number; out: number; minOut: number; eta: string; time: string; fee?: string }) {
   const fee = client.previewFee(a, b, "EXACT_INPUT");
   return (
     <Summary
       rate={`1 ${a.symbol} ≈ ${amount > 0 ? fmt(out / amount) : "?"} ${b.symbol}`}
-      meta={`fee ${feePercent} · ${eta}`}
+      meta={`fee ${feeLabel} · ${eta}`}
       rows={[
         ["Route", `${a.symbol} · ${chainLabel(a.blockchain)} → ZEC pool → ${b.symbol} · ${chainLabel(b.blockchain)}`],
         ["Min. received", `${fmt(minOut)} ${b.symbol}`],
@@ -159,6 +160,15 @@ function Details({ a, b, amount, out, minOut, eta, time }: { a: TokenInfo; b: To
     />
   );
 }
+
+const pct = (f: number): string => `${(f * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+// fee and time for each keeper, shown as two chips: one-time wallet pays the Unpair fee on both hops,
+// the server on hop one only, your own wallet now and again if you send out later
+const KEEPER_CHIPS: Record<Custody, [string, string]> = {
+  browser: [`about ${pct(feeFraction * 2)}`, "hours, tab open"],
+  server: [feePercent, "minutes to 1 h"],
+  own: [`${feePercent} now`, "minutes"],
+};
 
 const MODES: { value: Mode; title: string; hint: string }[] = [
   { value: "fast", title: "Fast", hint: "Exact amount. About 5 minutes." },
@@ -209,9 +219,22 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const planError = planned && "error" in planned ? planned.error : null;
   const plan = planned && !("error" in planned) ? planned : null;
   const sendNum = plan && a ? Number(formatUnits(plan.send, a.decimals)) : 0;
-  const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction)) / b.price : 0;
+  // the one-time wallet quotes both hops from the tab, so the routing fee is taken twice
+  const hops = custody === "browser" ? 2 : 1;
+  const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction) ** hops) / b.price : 0;
   const minOut = out * (1 - slippage / 10_000);
   const same = sameToken(a, b);
+  const pickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
+  // a new chain makes the old address wrong, so it is cleared
+  function pickToken(side: "in" | "out", t: TokenInfo) {
+    if (side === "in") {
+      if (a?.blockchain !== t.blockchain) setRefund("");
+      setInId(t.assetId);
+    } else {
+      if (bPicked?.blockchain !== t.blockchain) setDest("");
+      setOutId(t.assetId);
+    }
+  }
 
   const zecCheck = useZcashCheck(custody === "own" ? dest : "");
   const zecVerdict = zecCheck ? describeCheck(zecCheck) : null;
@@ -365,10 +388,11 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         onChange={(c) => { setCustody(c); setDest(""); setError(null); }}
         options={[{ value: "browser", title: "One-time wallet" }, { value: "server", title: "Unpair server" }, { value: "own", title: "My Zcash wallet" }]}
         warn={custody === "server"}
+        chips={KEEPER_CHIPS[custody]}
         note={custody === "server"
           ? "Our server holds the coins between the swaps, mixed with other people's coins. That is harder to trace on chain, but our server sees both ends. You can close the tab and come back with the link."
           : custody === "browser"
-            ? "A fresh Zcash wallet, made in this tab for this one swap. It pays out itself. Unpair never holds your coins. Keep the tab open, or save the recovery file."
+            ? "A fresh Zcash wallet, made in this tab for this one swap. It pays out itself. Unpair never holds your coins in this mode. Keep the tab open, or save the recovery file."
             : "ZEC lands in your own Zcash wallet app, shielded. Unpair never holds your coins in this mode. Move it on later with Send out."}
       />
       <Legs
@@ -381,6 +405,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
             amount={<input id="amount" inputMode="decimal" autoComplete="off" placeholder="0" value={amount} onChange={(e) => setAmount(e.target.value)} />}
             token={<TokenButton token={a} label="Token you send" onClick={() => setPicking("in")} />}
             note={plan && a && plan.heldBack > 0n ? `Quiet sends ${formatUnits(plan.send, a.decimals)} ${a.symbol}. The rest stays with you.` : null}
+            picks={<QuickPicks tokens={pickable} value={inId} onPick={(t) => pickToken("in", t)} label="Quick picks to send" />}
           />
         }
         get={
@@ -391,6 +416,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
             amount={<output aria-live="polite" className={out > 0 ? undefined : "zero"}>{out > 0 ? fmt(out) : "0"}</output>}
             token={custody === "own" ? <TokenButton fixed token={zec} label="You get ZEC" /> : <TokenButton token={bPicked} label="Token you receive" onClick={() => setPicking("out")} />}
             note={custody === "own" ? "into your shielded wallet" : null}
+            picks={custody === "own" ? null : <QuickPicks tokens={pickable} value={outId} onPick={(t) => pickToken("out", t)} label="Quick picks to get" />}
           />
         }
       />
@@ -400,7 +426,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       </AddressRows>
       <Hint>{hint}</Hint>
       {a && b && plan && !same && (
-        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} eta={mode === "quiet" ? "random wait" : "~5 min"} time={mode === "quiet" ? "about 5 min in, then a random wait up to 12 h" : "about 5 min"} />
+        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={custody === "browser" ? "hours" : mode === "quiet" ? "random wait" : "~5 min"} time={custody === "browser" ? "hours: the tab proves hop two" : mode === "quiet" ? "about 5 min in, then a random wait up to 12 h" : "about 5 min"} />
       )}
       {custody === "server" && hostedInfo && (
         <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>
@@ -423,17 +449,11 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       <TokenPicker
         open={picking !== null}
         title={picking === "in" ? "YOU SEND" : "YOU RECEIVE"}
-        tokens={tokens.filter((t) => t.blockchain !== "zec")}
+        tokens={pickable}
         value={picking === "in" ? inId : outId}
         onClose={() => setPicking(null)}
         onPick={(t) => {
-          if (picking === "in") {
-            if (a?.blockchain !== t.blockchain) setRefund("");
-            setInId(t.assetId);
-          } else {
-            if (bPicked?.blockchain !== t.blockchain) setDest("");
-            setOutId(t.assetId);
-          }
+          if (picking) pickToken(picking, t);
           setPicking(null);
         }}
       />
@@ -473,6 +493,11 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   const sendNum = plan ? Number(formatUnits(plan.send, ZEC_DECIMALS)) : 0;
   const out = zec && b && b.price > 0 ? (sendNum * zec.price * (1 - feeFraction)) / b.price : 0;
   const destCheck = b && dest.trim() ? checkAddressForChain(dest, b.blockchain) : null;
+  const outPickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
+  function pickOut(t: TokenInfo) {
+    if (b?.blockchain !== t.blockchain) setDest("");
+    setOutId(t.assetId);
+  }
   const refundZ = useZcashCheck(refund);
   const refundVerdict = refundZ ? describeRefundCheck(refundZ) : null;
 
@@ -558,6 +583,7 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
             usd={out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}
             amount={<output aria-live="polite" className={out > 0 ? undefined : "zero"}>{out > 0 ? fmt(out) : "0"}</output>}
             token={<TokenButton token={b} label="Token you receive" onClick={() => setPicking(true)} />}
+            picks={<QuickPicks tokens={outPickable} value={outId} onPick={pickOut} label="Quick picks to get" />}
           />
         }
       />
@@ -570,7 +596,7 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
         <Details a={zec} b={b} amount={sendNum} out={out} minOut={out * (1 - slippage / 10_000)} eta="~8 min" time="about 8 min after your payment confirms" />
       )}
       <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
-      <TokenPicker open={picking} title="YOU RECEIVE" tokens={tokens.filter((t) => t.blockchain !== "zec")} value={outId} onClose={() => setPicking(false)} onPick={(t) => { if (b?.blockchain !== t.blockchain) setDest(""); setOutId(t.assetId); setPicking(false); }} />
+      <TokenPicker open={picking} title="YOU RECEIVE" tokens={outPickable} value={outId} onClose={() => setPicking(false)} onPick={(t) => { pickOut(t); setPicking(false); }} />
     </form>
   );
 }

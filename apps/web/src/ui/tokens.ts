@@ -68,3 +68,42 @@ export function formatPrice(usd: number): string {
 
 /** Short label for a monogram icon. */
 export const monogram = (s: string, n = s.length > 4 ? 2 : 3): string => s.replace(/[^A-Za-z0-9]/g, "").slice(0, n).toUpperCase();
+
+// Recent picks, newest first, kept in this browser only. Storage can be off (private mode), so every access is guarded.
+const RECENT_KEY = "unpair-recent-tokens";
+const RECENT_MAX = 8;
+
+export function recentTokens(tokens: TokenInfo[]): TokenInfo[] {
+  let ids: string[] = [];
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    if (Array.isArray(v)) ids = v.filter((x): x is string => typeof x === "string");
+  } catch {
+    ids = [];
+  }
+  const byId = new Map(tokens.map((t) => [t.assetId, t]));
+  return ids.map((id) => byId.get(id)).filter((t): t is TokenInfo => Boolean(t));
+}
+
+export function rememberToken(t: TokenInfo): void {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    const ids = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x !== t.assetId) : [];
+    localStorage.setItem(RECENT_KEY, JSON.stringify([t.assetId, ...ids].slice(0, RECENT_MAX)));
+  } catch {
+    // no storage: the pick still works, it is only not remembered
+  }
+}
+
+const STARTERS: [string, string][] = [["USDC", "base"], ["ETH", "eth"], ["SOL", "sol"], ["BTC", "btc"]];
+
+/** Four quick picks for a leg: recent tokens first, then USDC, ETH, SOL and BTC. The current token is left out. */
+export function quickPicks(tokens: TokenInfo[], current: string | null, n = 4): TokenInfo[] {
+  const out: TokenInfo[] = [];
+  const add = (t: TokenInfo | undefined) => {
+    if (t && t.assetId !== current && !out.some((o) => o.assetId === t.assetId)) out.push(t);
+  };
+  for (const t of recentTokens(tokens)) add(t);
+  for (const [sym, chain] of STARTERS) add(tokens.find((t) => t.symbol === sym && t.blockchain === chain));
+  return out.slice(0, n);
+}
