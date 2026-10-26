@@ -75,7 +75,7 @@ export function chainKind(blockchain: string): ChainKind {
   }
 }
 
-export const KIND_NAMES: Record<ChainKind, string> = {
+const KIND_NAMES: Record<ChainKind, string> = {
   evm: "an Ethereum-style address",
   sol: "a Solana address",
   btc: "a Bitcoin address",
@@ -132,7 +132,7 @@ export interface ChainAddressCheck {
 const LOOKUP_ORDER: Array<Exclude<ChainKind, "other">> = ["evm", "zec", "tron", "xrp", "doge", "dash", "btc", "ltc", "bch", "ton", "stellar", "cardano", "aleo", "near", "sui", "aptos", "starknet", "sol"];
 
 /** Which families an input could belong to, by shape, most specific first. */
-export function looksLike(address: string): ChainKind[] {
+function looksLike(address: string): ChainKind[] {
   const a = address.trim();
   return LOOKUP_ORDER.filter((k) => SHAPES[k].test(a));
 }

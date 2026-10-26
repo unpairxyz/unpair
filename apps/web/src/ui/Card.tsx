@@ -57,7 +57,7 @@ export function CardHead<M extends string>({ tab, onTab, mode, modes, onMode, sl
 }
 
 /** A row of plain radio buttons in one black frame. */
-export function Segment<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void }) {
+function Segment<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void }) {
   return (
     <span className="seg" role="radiogroup" aria-label={label} onKeyDown={arrowKeys}>
       {options.map((o) => (

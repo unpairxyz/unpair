@@ -8,7 +8,7 @@
  * that lands between the quote and the proof. The floor is the old fixed
  * reserve, so a wallet that reports no count behaves as before.
  */
-export const ZIP317_MARGINAL_ZAT = 5_000n;
+const ZIP317_MARGINAL_ZAT = 5_000n;
 export const HOP2_FEE_RESERVE_FLOOR_ZAT = 20_000n;
 
 export function hop2FeeReserveZat(spendableNotes: number): bigint {

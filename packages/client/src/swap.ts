@@ -3,8 +3,6 @@
  */
 import type { HostedState } from "./api.js";
 import {
-  describeReleaseWindow,
-  formatUnits,
   oneClickStatusToState,
   parseUnits,
   roundDownCoarse,
@@ -15,17 +13,6 @@ import {
 } from "@unpair/sdk";
 
 export type Mode = "fast" | "quiet";
-
-export const MODE_COPY: Record<Mode, { title: string; text: string }> = {
-  fast: {
-    title: "Fast",
-    text: "One hop. Your exact amount lands at your Zcash address in a few minutes.",
-  },
-  quiet: {
-    title: "Quiet",
-    text: "Rounded amount, so your payout looks like everyone else's. " + describeReleaseWindow() + " The second hop runs from your shielded wallet.",
-  },
-};
 
 export interface AmountPlan {
   /** What the user types, in base units. */
@@ -48,11 +35,6 @@ export function planAmount(input: string, token: TokenInfo, mode: Mode, round = 
   if (mode === "fast" || !round) return { requested, send: requested, heldBack: 0n };
   const r = roundDownCoarse(requested);
   return { requested, send: r.amount, heldBack: r.remainder };
-}
-
-export function describePlan(plan: AmountPlan, token: TokenInfo, mode: Mode): string {
-  if (mode === "fast" || plan.heldBack === 0n) return `You send ${formatUnits(plan.send, token.decimals)} ${token.symbol}.`;
-  return `Quiet mode rounds ${formatUnits(plan.requested, token.decimals)} down to ${formatUnits(plan.send, token.decimals)} ${token.symbol}. The rest stays in your wallet.`;
 }
 
 export const STATE_COPY: Record<UnpairState, { label: string; text: string }> = {
@@ -80,18 +62,6 @@ export function depositDeadline(q: QuoteResponse): Date | null {
   const d = q.quote.deadline ?? q.quoteRequest.deadline;
   const t = Date.parse(d);
   return Number.isNaN(t) ? null : new Date(t);
-}
-
-export function groupByChain(tokens: TokenInfo[]): Map<string, TokenInfo[]> {
-  const m = new Map<string, TokenInfo[]>();
-  for (const t of tokens) {
-    if (t.blockchain === "zec") continue;
-    const list = m.get(t.blockchain) ?? [];
-    list.push(t);
-    m.set(t.blockchain, list);
-  }
-  for (const list of m.values()) list.sort((a, b) => a.symbol.localeCompare(b.symbol));
-  return new Map([...m.entries()].sort(([a], [b]) => a.localeCompare(b)));
 }
 
 export const CHAIN_NAMES: Record<string, string> = {
@@ -127,10 +97,7 @@ export function chainName(id: string): string {
   return CHAIN_NAMES[id] ?? id.toUpperCase();
 }
 
-/** The four panels of a hosted swap, in order. */
-export const HOSTED_STAGES = ["Deposit seen", "Into the pool", "In the pool", "Out"] as const;
-
-/** Which panel a hosted state lights, 0 to 3, or -1 before the deposit. */
+/** Which of the four panels (Deposit seen, Into the pool, In the pool, Out) a hosted state lights, 0 to 3, or -1 before the deposit. */
 export function hostedStage(state: HostedState): number {
   switch (state) {
     case "waiting_for_deposit":

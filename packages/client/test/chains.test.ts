@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chainKind, checkAddressForChain, looksLike } from "../src/chains.js";
+import { chainKind, checkAddressForChain } from "../src/chains.js";
 
 describe("chains", () => {
   it("maps every 1Click chain to a family", () => {
@@ -38,7 +38,7 @@ describe("chains", () => {
     expect(checkAddressForChain("", "eth").ok).toBe(false);
     expect(checkAddressForChain("hello world", "eth").ok).toBe(false);
     expect(checkAddressForChain("zs1z7rejlpsa98s2rrrfkwmaxu53e4ue0ulcrw0h4x5g8jl04tak0d3mm47vdtahatqrlkngh9sly", "zec").ok).toBe(false);
-    expect(looksLike("TJRabPrwbZy45sbavfcjinPJC18kjpRTv8")).toContain("tron");
+    expect(checkAddressForChain("TJRabPrwbZy45sbavfcjinPJC18kjpRTv8", "eth").looksLike).toBe("tron");
   });
 
   it("refuses a bad EIP-55 checksum", () => {

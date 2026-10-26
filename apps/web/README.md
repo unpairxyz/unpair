@@ -14,7 +14,7 @@ page load. Fill `public/icons/` before a build:
 node apps/web/scripts/fetch-icons.mjs
 ```
 
-The folder is not committed. The Web page and Release workflows run the script before they build.
+The folder is not committed. The Build and Release workflows run the script before they build.
 Without it, every token shows a monogram.
 
 ## Run
@@ -35,9 +35,9 @@ pnpm --filter @unpair/web build           # output in apps/web/dist
 
 Upload `dist/` to any static host. Cloudflare Pages, Netlify, GitHub Pages and a
 plain nginx folder all work. No server code, no database, no cookies. The
-"Web page" workflow builds `dist/` with the browser wallet and the icons on
-every push to main and keeps it as the artifact `unpair-web`; it publishes to
-GitHub Pages only when the repository variable `USE_PAGES` is `true`.
+Build workflow, run by hand or by a release, builds `dist/` with the browser
+wallet and the icons and keeps it as the artifact `unpair-web`; a release
+attaches it as `unpair-web.tar.gz` with its hash.
 
 Environment values are public and end up in the bundle:
 
@@ -72,7 +72,8 @@ cannot; `brew install llvm` or a wasi-sdk release can. Point
 build the choice stays visible and says it is off.
 
 The page also needs `VITE_LWD_GRPC_WEB_URL`. See the self-host guide for the
-proxy. The Pages workflow builds the wallet on every deploy.
+proxy. The Build workflow builds the wallet, from a cache when the Zcash
+crates did not change.
 
 ## What the page does
 

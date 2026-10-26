@@ -7,8 +7,7 @@ It gives a wallet or a web app:
 - a 1Click (NEAR Intents) client that adds Unpair's routing fee and validates requests before they leave the device,
 - fee rules with the cap written in code,
 - amount rounding and a random release timer for quiet mode,
-- a `Route` interface so THORChain and Maya can plug in next to 1Click,
-- a `Transport` interface so the caller decides how traffic leaves the device: clearnet, Tor or Nym.
+- a `Transport` wrapper around the fetch the caller passes in, with a timeout.
 
 ## Install
 
@@ -19,12 +18,12 @@ pnpm add @unpair/sdk
 ## Quote and swap
 
 ```ts
-import { ASSETS, OneClickClient, torTransport } from "@unpair/sdk";
+import { OneClickClient, clearnetTransport } from "@unpair/sdk";
 
 const client = new OneClickClient({
   apiKey: process.env.ONECLICK_JWT,          // optional; without it 1Click adds 25 bps
   fee: { recipient: "unpair.near", feeBps: 50 },
-  transport: torTransport(myTorFetch),        // a fetch bound to arti or a Tor SOCKS proxy
+  transport: clearnetTransport(),             // or clearnetTransport(myFetch)
 });
 
 // 1. Show the estimated fee before anything else.
@@ -36,9 +35,9 @@ console.log(preview.text);
 const quote = await client.quote({
   swapType: "EXACT_INPUT",
   slippageTolerance: 100,
-  originAsset: ASSETS.ETH,
+  originAsset: "nep141:eth.omft.near",     // ids come from GET /v0/tokens
   depositType: "ORIGIN_CHAIN",
-  destinationAsset: ASSETS.ZEC,
+  destinationAsset: "nep141:zec.omft.near",
   amount: "100000000000000000",            // 0.1 ETH in wei
   refundTo: "0xYourAddress",
   refundType: "ORIGIN_CHAIN",
@@ -82,11 +81,9 @@ Both rounding functions round down and return the remainder. The remainder stays
 
 ## Transport
 
-The SDK calls one `fetch`-shaped function and nothing else. Pass:
-
-- `clearnetTransport()` for development. It leaks the caller's IP to the route operator.
-- `torTransport(fetch)` with a fetch bound to arti or a Tor SOCKS proxy.
-- `nymTransport(fetch)` with a fetch from `@nymproject/mix-fetch` or a native nym-sdk binding.
+The SDK calls one `fetch`-shaped function and nothing else. `clearnetTransport()`
+wraps the global fetch, or the fetch you pass it, with a timeout. The caller's IP
+reaches the route operator; the page's privacy notes say when that matters.
 
 ## Test
 

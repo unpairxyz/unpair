@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { OneClickClient, OneClickError } from "../src/oneclick/client.js";
-import { ASSETS } from "../src/oneclick/assets.js";
-import { customTransport } from "../src/transport.js";
-import { OneClickRoute, oneClickStatusToState } from "../src/route.js";
+import { clearnetTransport } from "../src/transport.js";
+import { oneClickStatusToState } from "../src/route.js";
 import type { QuoteResponse, StatusResponse } from "../src/oneclick/types.js";
 
 const NOW = new Date("2026-10-25T12:00:00.000Z");
@@ -13,7 +12,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function makeClient(fetchMock: ReturnType<typeof vi.fn>, opts: Partial<ConstructorParameters<typeof OneClickClient>[0]> = {}) {
   return new OneClickClient({
-    transport: customTransport(fetchMock as unknown as typeof fetch),
+    transport: clearnetTransport(fetchMock as unknown as typeof fetch),
     fee: { recipient: "unpair.near", feeBps: 50 },
     now: () => NOW,
     ...opts,
@@ -23,9 +22,9 @@ function makeClient(fetchMock: ReturnType<typeof vi.fn>, opts: Partial<Construct
 const baseInput = {
   swapType: "EXACT_INPUT" as const,
   slippageTolerance: 100,
-  originAsset: ASSETS.ETH,
+  originAsset: "nep141:eth.omft.near",
   depositType: "ORIGIN_CHAIN" as const,
-  destinationAsset: ASSETS.ZEC,
+  destinationAsset: "nep141:zec.omft.near",
   amount: "1000000000000000000",
   refundTo: "0x0000000000000000000000000000000000000001",
   refundType: "ORIGIN_CHAIN" as const,
@@ -179,15 +178,5 @@ describe("status and route mapping", () => {
     });
     expect(s.status).toBe("SUCCESS");
     expect(seen).toEqual(["PENDING_DEPOSIT", "PROCESSING", "SUCCESS"]);
-  });
-
-  it("wraps 1Click as a Route", async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(quoteResponse)).mockResolvedValueOnce(jsonResponse(statusResponse));
-    const client = makeClient(fetchMock, { apiKey: "jwt" });
-    const route = new OneClickRoute(client, () => 50);
-    const q = await route.quote(baseInput);
-    expect(q).toMatchObject({ routeId: "oneclick", amountOut: 6_000_000_000n, depositAddress: "0xdeposit", totalFeeBps: 50 });
-    const s = await route.status("0xdeposit");
-    expect(s).toMatchObject({ state: "landed", amountOut: 6_000_000_000n, operatorStatus: "SUCCESS" });
   });
 });
