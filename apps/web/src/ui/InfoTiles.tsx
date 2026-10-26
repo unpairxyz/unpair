@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { drawMark } from "./school";
+import { Chips } from "./Card";
 import { Fish } from "./Sprites";
 import { THEME_EVENT } from "./themeMode";
 
@@ -21,7 +22,7 @@ export function QuoteMark({ seed, size = 62, className }: { seed: string; size?:
 }
 
 /** Tiles under the story: who holds the coins (full width), then Fast VS Quiet, and the mark with the fee. */
-export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePercent?: string; capPercent?: string }) {
+export function InfoTiles({ feePercent = "0.5%", capPercent = "1%", chips }: { feePercent?: string; capPercent?: string; chips?: Record<"browser" | "server" | "own", readonly string[]> }) {
   return (
     <div className="info3">
       <section className="p keepp"><div className="in">
@@ -37,7 +38,8 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
               <text x="74" y="36" fontFamily="Bangers, Impact, sans-serif" fontSize="24" fill="var(--ink)">x1</text>
             </svg>
             <b className="ht">ONE-TIME WALLET</b>
-            <p>A fresh Zcash wallet, made in this tab for one swap. Keep the tab open, or save the recovery file. We never hold the key.</p>
+            {chips && <Chips items={chips.browser} />}
+            <p>A fresh Zcash wallet, made in this tab for one swap. Keep the tab open, or save the recovery file. We never hold the key in this mode.</p>
           </div>
           <div className="half tone">
             <svg viewBox="0 0 120 50" className="mini-art" aria-hidden="true">
@@ -45,6 +47,7 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
               <g transform="translate(2 8)"><use href="#fishBody" style={{ ["--fill" as string]: "var(--paper)" }} width="60" height="38" /><use href="#eyeSleep" width="60" height="38" /></g>
             </svg>
             <b className="ht">UNPAIR SERVER</b>
+            {chips && <Chips items={chips.server} />}
             <p><span className="hl">We hold the coins between the swaps, mixed with other people's coins. Harder to trace on chain, but we see both ends. You can close the tab.</span></p>
           </div>
           <div className="half">
@@ -55,6 +58,7 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%" }: { feePerce
               <g transform="translate(52 12) rotate(20)"><circle cx="9" cy="9" r="8" fill="var(--paper)" stroke="var(--ink)" strokeWidth="3" /><circle cx="9" cy="9" r="2.5" fill="var(--ink)" /><path d="M16 13 L32 22 M25 17 l-3 5 M30 20 l-3 5" stroke="var(--ink)" strokeWidth="3" strokeLinecap="round" /></g>
             </svg>
             <b className="ht">MY ZCASH WALLET</b>
+            {chips && <Chips items={chips.own} />}
             <p>Your own wallet app, like Zodl or Zingo. The ZEC lands there. Only you hold the key.</p>
           </div>
         </div>

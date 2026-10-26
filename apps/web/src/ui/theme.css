@@ -243,28 +243,44 @@ dialog h3{margin:0 0 8px;font:400 34px var(--sfx);letter-spacing:.05em}
 /* QR codes stay black on white in both themes */
 .qr img,.qr canvas,.qr svg{width:200px;height:200px;image-rendering:pixelated;border:3px solid var(--ink);background:#fff}
 .qrbtn{margin-top:8px}
-/* picker */
-.picker{max-width:460px;padding:0}
-.picker .ph{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 8px}
+/* picker: chain icons on the left, search and tokens on the right */
+.picker{max-width:600px;width:calc(100% - 24px);padding:0}
+.picker .ph{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 10px;border-bottom:3px solid var(--ink)}
 .picker .ph h3{margin:0}
-.picker .x{width:40px;height:40px;border:3px solid var(--ink);background:var(--paper);font:700 18px var(--ui);cursor:pointer}
-.psearch{margin:0 16px;width:calc(100% - 32px);min-height:46px;border:3px solid var(--ink);padding:0 12px;font:600 15px var(--ui);outline:none}
+.picker .x{width:40px;height:40px;border:3px solid var(--ink);background:var(--paper);color:var(--ink);font:700 18px var(--ui);cursor:pointer}
+.pbody{display:grid;grid-template-columns:68px minmax(0,1fr);height:min(64vh,560px)}
+.prail{display:flex;flex-direction:column;align-items:center;gap:6px;overflow-y:auto;padding:10px 0;border-right:3px solid var(--ink);scrollbar-width:thin}
+.prail button{flex:none;width:46px;height:46px;display:grid;place-items:center;border:2px solid transparent;border-radius:50%;background:var(--paper);cursor:pointer;padding:0}
+.prail button:hover{border-color:var(--ink)}
+.prail button[aria-pressed=true]{border:3px solid var(--ink);box-shadow:3px 3px 0 var(--spot)}
+.prail .pall{font:400 15px var(--sfx);letter-spacing:.06em;color:var(--ink);border-color:var(--ink)}
+.prail .pall[aria-pressed=true]{background:var(--ink);color:var(--paper)}
+.prail .ti,.prail .ti img,.prail .ti .mono-ic{width:32px;height:32px}
+.pmain{display:flex;flex-direction:column;min-width:0;min-height:0}
+.psearch{margin:12px 12px 0;width:calc(100% - 24px);min-height:46px;border:3px solid var(--ink);padding:0 12px;font:600 15px var(--ui);outline:none;background:var(--paper);color:var(--ink)}
 .psearch:focus{box-shadow:4px 4px 0 var(--spot)}
-.pchains{display:flex;gap:6px;overflow-x:auto;padding:10px 16px;scrollbar-width:thin}
-.pchains button{flex:none;display:flex;align-items:center;gap:6px;min-height:36px;padding:0 10px 0 4px;border:2px solid var(--ink);background:var(--paper);font:700 12px var(--ui);cursor:pointer;white-space:nowrap}
-.pchains button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
-.pchains .ti,.pchains .ti img,.pchains .ti .mono-ic{width:22px;height:22px}
-.pchains .ti .mono-ic{font-size:9px}
-.plist{max-height:min(52vh,440px);overflow-y:auto;border-top:3px solid var(--ink);padding:4px 0}
-.plist button{display:flex;align-items:center;gap:12px;width:100%;min-height:54px;padding:6px 16px;border:0;background:var(--paper);cursor:pointer;text-align:left;font:inherit}
-.plist button:hover,.plist button:focus-visible{background-image:radial-gradient(var(--ink) .6px,transparent .8px);background-size:4px 4px}
-.plist button:hover .pt,.plist button:focus-visible .pt{background:var(--paper)}
+.pscope{display:flex;align-items:center;gap:8px;padding:8px 14px 4px;font:700 13px var(--ui)}
+.pscope span:last-child{margin-left:auto;font:600 12px var(--mono);color:var(--mute)}
+.pscope .ti,.pscope .ti img,.pscope .ti .mono-ic{width:20px;height:20px}
+.precent,.qpicks{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.precent{padding:4px 12px 8px}
+.plbl{font:700 11px var(--ui);text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin-right:2px}
+.precent button,.qpicks button{display:flex;align-items:center;gap:5px;min-height:32px;padding:0 9px 0 3px;border:2px solid var(--ink);border-radius:18px;background:var(--paper);color:var(--ink);font:700 12px var(--ui);cursor:pointer}
+.precent button:hover,.qpicks button:hover{background:var(--bg)}
+.precent .ti,.precent .ti img,.precent .ti .mono-ic,.qpicks .ti,.qpicks .ti img,.qpicks .ti .mono-ic{width:22px;height:22px}
+.precent .ti .cb,.qpicks .ti .cb{width:11px;height:11px;right:-3px;bottom:-3px}
+.qpicks{margin-top:8px}
+.plist{flex:1;overflow-y:auto;border-top:2px solid var(--ink);padding:4px 0}
+.plist button{display:flex;align-items:center;gap:12px;width:100%;min-height:54px;padding:6px 14px;border:0;background:var(--paper);color:var(--ink);cursor:pointer;text-align:left;font:inherit}
+.plist button[aria-selected=true]{box-shadow:inset 6px 0 0 var(--spot)}
+.plist button:hover,.plist button:focus-visible{background:var(--bg)}
 .plist .pt{display:flex;flex-direction:column;line-height:1.15;flex:1;min-width:0}
 .plist .pt b{font:700 15px var(--ui)}
 .plist .pt small{font:600 12px var(--ui);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plist .pp{font:600 12px var(--mono);color:var(--mute)}
 .plist .empty{padding:16px;font:700 14px var(--letter)}
-.pcount{padding:6px 16px 12px;font:600 11px var(--mono);color:var(--mute);border-top:2px solid var(--ink)}
+.pcount{padding:6px 16px 10px;font:600 11px var(--mono);color:var(--mute);border-top:3px solid var(--ink)}
+@media (max-width:560px){.pbody{grid-template-columns:56px minmax(0,1fr);height:70vh}.prail button{width:40px;height:40px}.prail .ti,.prail .ti img,.prail .ti .mono-ic{width:28px;height:28px}}
 /* compact info */
 .info3>.p{grid-column:auto}
 .info3{grid-column:1/-1;display:grid;grid-template-columns:5fr 4fr 4fr;gap:14px}
@@ -397,3 +413,8 @@ dialog .qr svg{width:240px;height:240px;max-width:100%}
 .vcode{font:700 28px var(--mono);letter-spacing:.12em;margin-top:6px}
 .vok,.vwarn{margin:0;font:700 14px var(--ui)}
 .vwarn{color:var(--spot-text)}
+
+/* fee and time chips for each keeper */
+.chips{display:inline-flex;gap:4px;margin-right:6px;vertical-align:1px}
+.kchip{display:inline-block;padding:0 6px;border:2px solid var(--ink);border-radius:10px;font:700 11px/1.5 var(--mono);color:var(--ink);background:var(--paper);white-space:nowrap}
+.half .chips{display:flex;margin:4px 0 0}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TokenInfo } from "@unpair/sdk";
-import { chainIcon, chainLabel, formatPrice, isNative, monogram, searchTokens, sortChains, tokenIcon } from "./tokens";
+import { chainIcon, chainLabel, formatPrice, isNative, monogram, quickPicks, recentTokens, rememberToken, searchTokens, sortChains, tokenIcon } from "./tokens";
 
 function Img({ src, label, badge = false }: { src: string | null; label: string; badge?: boolean }) {
   const [failed, setFailed] = useState(false);
@@ -45,8 +45,24 @@ export function TokenButton({ token, onClick, label, fixed = false }: { token: T
   );
 }
 
+/** Small token buttons under a leg, for one-tap picks. */
+export function QuickPicks({ tokens, value, onPick, label }: { tokens: TokenInfo[]; value: string | null; onPick: (t: TokenInfo) => void; label: string }) {
+  const picks = useMemo(() => quickPicks(tokens, value), [tokens, value]);
+  if (!picks.length) return null;
+  return (
+    <div className="qpicks" role="group" aria-label={label}>
+      {picks.map((t) => (
+        <button type="button" key={t.assetId} onClick={() => { rememberToken(t); onPick(t); }} title={`${t.symbol} on ${chainLabel(t.blockchain)}`} aria-label={`${t.symbol} on ${chainLabel(t.blockchain)}`}>
+          <TokenIcon token={t} />
+          <span>{t.symbol}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
- * Token picker dialog: search, chain chips, popular tokens first.
+ * Token picker dialog: chains as an icon column on the left, search, recent picks and the token list on the right.
  * `open` drives the native <dialog>; Escape and the close button call onClose.
  */
 export function TokenPicker({ open, title, tokens, value, onPick, onClose }: {
@@ -61,17 +77,25 @@ export function TokenPicker({ open, title, tokens, value, onPick, onClose }: {
   const dlg = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState("");
   const [chain, setChain] = useState<string | null>(null);
+  const [recent, setRecent] = useState<TokenInfo[]>([]);
   const chains = useMemo(() => sortChains(tokens.map((t) => t.blockchain)), [tokens]);
   const rows = useMemo(() => searchTokens(tokens, query, chain), [tokens, query, chain]);
+  const shownRecent = recent.filter((t) => !chain || t.blockchain === chain);
 
   useEffect(() => {
     const d = dlg.current;
     if (!d) return;
     if (open && !d.open) {
       setQuery("");
+      setRecent(recentTokens(tokens));
       d.showModal();
     } else if (!open && d.open) d.close();
-  }, [open]);
+  }, [open, tokens]);
+
+  const pick = (t: TokenInfo) => {
+    rememberToken(t);
+    onPick(t);
+  };
 
   return (
     <dialog ref={dlg} className="picker" aria-labelledby="picker-title" onClose={onClose}>
@@ -79,27 +103,42 @@ export function TokenPicker({ open, title, tokens, value, onPick, onClose }: {
         <h3 id="picker-title">{title}</h3>
         <button type="button" className="x" aria-label="Close" onClick={onClose}>✕</button>
       </div>
-      <input className="psearch" type="search" autoComplete="off" autoFocus placeholder="Search name, symbol or chain" aria-label="Search tokens" value={query} onChange={(e) => setQuery(e.target.value)} />
-      <div className="pchains" role="group" aria-label="Filter by chain">
-        <button type="button" aria-pressed={chain === null} onClick={() => setChain(null)}>All chains</button>
-        {chains.map((c) => (
-          <button type="button" key={c} aria-pressed={chain === c} onClick={() => setChain(c)}>
-            <ChainIcon chain={c} />
-            {chainLabel(c)}
-          </button>
-        ))}
+      <div className="pbody">
+        <div className="prail" role="group" aria-label="Chains">
+          <button type="button" className="pall" aria-pressed={chain === null} onClick={() => setChain(null)}>ALL</button>
+          {chains.map((c) => (
+            <button type="button" key={c} aria-pressed={chain === c} aria-label={chainLabel(c)} title={chainLabel(c)} onClick={() => setChain(c)}>
+              <ChainIcon chain={c} />
+            </button>
+          ))}
+        </div>
+        <div className="pmain">
+          <input className="psearch" type="search" autoComplete="off" autoFocus placeholder="Search token or chain" aria-label="Search tokens" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="pscope">{chain ? <><ChainIcon chain={chain} /><b>{chainLabel(chain)}</b></> : <b>All chains</b>}<span>{rows.length} tokens</span></div>
+          {!query && shownRecent.length > 0 && (
+            <div className="precent" role="group" aria-label="Recent">
+              <span className="plbl">Recent</span>
+              {shownRecent.map((t) => (
+                <button type="button" key={t.assetId} onClick={() => pick(t)} title={`${t.symbol} on ${chainLabel(t.blockchain)}`}>
+                  <TokenIcon token={t} />
+                  <span>{t.symbol}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="plist" role="listbox" aria-label="Tokens">
+            {rows.length === 0 && <div className="empty">No token found. Try another name, or pick ALL.</div>}
+            {rows.map((t) => (
+              <button type="button" role="option" aria-selected={t.assetId === value} key={t.assetId} onClick={() => pick(t)}>
+                <TokenIcon token={t} />
+                <span className="pt"><b>{t.symbol}</b><small>{chainLabel(t.blockchain)}</small></span>
+                <span className="pp">{formatPrice(t.price)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
-      <div className="plist" role="listbox" aria-label="Tokens">
-        {rows.length === 0 && <div className="empty">No token found. Try another name, or pick "All chains".</div>}
-        {rows.map((t) => (
-          <button type="button" role="option" aria-selected={t.assetId === value} key={t.assetId} onClick={() => onPick(t)}>
-            <TokenIcon token={t} />
-            <span className="pt"><b>{t.symbol}</b><small>{chainLabel(t.blockchain)}</small></span>
-            <span className="pp">{formatPrice(t.price)}</span>
-          </button>
-        ))}
-      </div>
-      <div className="pcount">{tokens.length} tokens on {chains.length} chains, from NEAR Intents.</div>
+      <div className="pcount">{tokens.length} tokens on {chains.length} chains.</div>
     </dialog>
   );
 }
