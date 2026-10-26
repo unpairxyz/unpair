@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
 import { api, client, config, describeError, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
-import { Address, DoneBurst, GoButton, Mascot, StatusStrip, VerifyStrip, type HeroStage } from "./ui";
+import { Address, DoneBurst, Facts, GoButton, Mascot, OUT_WAIT, POOL_WAIT, StatusStrip, VerifyStrip, depositWait, short, useElapsed, useEndTime, type HeroStage } from "./ui";
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
 import type { Balance, Landing, Upgrade } from "./wallet/types";
@@ -65,6 +65,12 @@ export function BrowserSwap(props: Props) {
   const outStarted = useRef(false);
   // bumped by the retry button, the only thing that may start hop two again after a failure
   const [attempt, setAttempt] = useState(0);
+  // a reopened swap counts from when its recovery file was written
+  const [start] = useState(() => {
+    const t = fresh ? NaN : Date.parse(props.recovery.created);
+    return Number.isFinite(t) ? t : Date.now();
+  });
+  const elapsed = useElapsed(start, useEndTime(phase === "done"));
 
   // leaving the tab while coins are in it loses them unless the recovery file was saved
   useEffect(() => {
@@ -305,7 +311,13 @@ export function BrowserSwap(props: Props) {
     return (
       <div>
         <div className="wtitle"><b>IN PROGRESS</b><span className="code">{shortCode(seed)}</span></div>
-        <StatusStrip current={state1 === "waiting_for_deposit" ? 0 : 1} texts={{ 0: "Watching the deposit address.", 1: "The route swaps it into ZEC and pays this tab's shielded address.", 2: "Lands in the pool. The tab's wallet picks it up.", 3: "The tab pays hop two to your address." }} />
+        <StatusStrip current={state1 === "waiting_for_deposit" ? 0 : 1} texts={{ 0: depositWait(props.token.blockchain), 1: "The route swaps it into ZEC and pays this tab's wallet.", 2: POOL_WAIT, 3: OUT_WAIT }} />
+        <Facts rows={[
+          ["Send", `${q.amountInFormatted} ${props.token.symbol}`, true],
+          ["Receive", `${outToken?.symbol ?? ""} on ${chainLabel(outToken?.blockchain ?? "")}`],
+          ["To", short(props.dest), true],
+          ["Time", elapsed],
+        ]} />
         {pollError1 && <p className="err-line">Status check failed, retrying: {pollError1}</p>}
         <p className="fine">Keep this page open until the swap completes. ZEC sent straight to the tab's address is picked up here too.</p>
         <GoButton ghost onClick={() => setPhase("pool")}>I PAID THE TAB'S ADDRESS INSTEAD</GoButton>
@@ -323,7 +335,7 @@ export function BrowserSwap(props: Props) {
         : balance.ironwood_total === 0
           ? "Nothing has landed yet. Watching the chain."
           : spendable === 0n
-            ? `${inPool} ZEC in the pool. Waiting for a confirmation.`
+            ? `${inPool} ZEC landed. ${POOL_WAIT}`
           : upgrade?.sending_paused
             ? `Sending pauses around the ${upgrade.name} upgrade at block ${upgrade.height}. It resumes after.`
             : release && release.getTime() > Date.now()
@@ -332,8 +344,14 @@ export function BrowserSwap(props: Props) {
     return (
       <div>
         <div className="wtitle"><b>{phase === "out" ? "HOP TWO" : "IN THE POOL"}</b>{balance?.scanned_to ? <span className="code">block {balance.scanned_to}</span> : null}</div>
-        <StatusStrip current={phase === "out" ? 3 : 2} texts={{ 0: "Deposit seen.", 1: "Swapped into ZEC.", 2: poolText, 3: phase === "out" ? poolText : `The tab pays ${outToken?.symbol ?? "the asset"} to your address.` }} />
-        {hop2?.txid && <p className="fine">Zcash transaction <span className="code">{hop2.txid.slice(0, 12)}…</span></p>}
+        <StatusStrip current={phase === "out" ? 3 : 2} texts={{ 0: "Deposit seen.", 1: "Swapped into ZEC.", 2: poolText, 3: phase === "out" ? (hop2?.txid ? OUT_WAIT : poolText) : OUT_WAIT }} />
+        <Facts rows={[
+          inPool !== null && ["In the pool", `${inPool} ZEC`, true],
+          plan && outToken && ["Receive", `${outToken.symbol} on ${chainLabel(outToken.blockchain)}`],
+          plan && ["To", short(plan.recipient), true],
+          hop2?.txid && ["Zcash tx", short(hop2.txid), true],
+          ["Time", elapsed],
+        ]} />
         {hop2?.txid && plan?.mode === "quiet" && <p className="fine">Quiet mode sent a rounded amount. The small rest stays in this wallet, and the recovery file can spend it.</p>}
         {error && <p className="err-line">{error}</p>}
         {phase === "out" && error && <GoButton onClick={retryOut}>TRY HOP TWO AGAIN</GoButton>}
@@ -363,6 +381,12 @@ export function BrowserSwap(props: Props) {
               : STATE_COPY[state2].text}
       </p>
       {(status1?.swapDetails.refundReason || status2?.swapDetails.refundReason) && <p className="err-line">Reason: {status2?.swapDetails.refundReason ?? status1?.swapDetails.refundReason}</p>}
+      <Facts rows={[
+        state2 === "landed" && q2 && outToken && ["Got", `${q2.amountOutFormatted} ${outToken.symbol}`, true],
+        plan && ["To", short(plan.recipient), true],
+        hop2?.txid && ["Zcash tx", short(hop2.txid), true],
+        ["Time", elapsed],
+      ]} />
       {state2 === "landed" && <Mascot face="happy" red={false}>The one-time wallet is empty now. Its key is forgotten when you leave. Keep the recovery file anyway until you have checked your balance.</Mascot>}
       {error && <p className="err-line">{error}</p>}
       {working && <p className="fine">{working}</p>}

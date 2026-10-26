@@ -26,13 +26,13 @@ export function PhoneCheck({ open, url, error, seed, code, onClose }: { open: bo
 }
 
 /** On the second device the check comes first: a large mark, the code, and whether the signature holds. */
-export function VerifyHero({ seed, code, verified }: { seed: string; code: string; verified: boolean | null }) {
+export function VerifyHero({ seed, code, verified, note }: { seed: string; code: string; verified: boolean | null; note?: string }) {
   return (
     <div className="vhero">
       <QuoteMark seed={seed} size={132} />
       <b className="vcode">{code}</b>
       <p className={verified ? "vok" : "vwarn"}>
-        {verified ? "Signed by Unpair. The signature checks out." : "This page cannot check the signature. Do not pay unless the other screen says the same."}
+        {note ?? (verified ? "Signed by Unpair. The signature checks out." : "This page cannot check the signature. Do not pay unless the other screen says the same.")}
       </p>
       <p className="fine">Compare with the other screen: same mark, same code.</p>
     </div>
