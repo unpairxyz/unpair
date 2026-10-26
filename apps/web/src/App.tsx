@@ -221,6 +221,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const sendNum = plan && a ? Number(formatUnits(plan.send, a.decimals)) : 0;
   // the one-time wallet quotes both hops from the tab, so the routing fee is taken twice
   const hops = custody === "browser" ? 2 : 1;
+  // what the button says while the form works: the one-time wallet has a loading step before the quote
+  const [busyText, setBusyText] = useState("GETTING A QUOTE");
   const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction) ** hops) / b.price : 0;
   const minOut = out * (1 - slippage / 10_000);
   // the same token in and out is fine through the pool: two hops, and only the link is gone
@@ -264,6 +266,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   async function go() {
     if (!a || !b || !plan) return;
     setBusy(true);
+    setBusyText("GETTING A QUOTE");
     setError(null);
     try {
       if (custody === "server") {
@@ -286,9 +289,11 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       }
       if (custody === "browser") {
         if (!config.lwdGrpcWebUrl || !zec) throw new Error("The one-time wallet needs a Zcash wallet server.");
+        setBusyText("LOADING THE WALLET");
         const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl);
         try {
           const landing = await wallet.nextLanding();
+          setBusyText("GETTING A QUOTE");
           const request: QuoteInput = {
             swapType: "EXACT_INPUT",
             slippageTolerance: slippage,
@@ -439,7 +444,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       {custody === "browser" && !browserOff && (
         <p className="fine">The one-time wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
       )}
-      <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
+      <GoButton type="submit" disabled={!ready}>{busy ? busyText : label}</GoButton>
       <p className="fine">
         {api ? "Addresses are screened and the quote is signed by the Unpair API." : "The quote comes straight from the route, from your browser."}
         {config.lwdGrpcWebUrl && (
