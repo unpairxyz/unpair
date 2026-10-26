@@ -126,10 +126,10 @@ export function TokenPicker({ open, title, tokens, value, onPick, onClose }: {
               ))}
             </div>
           )}
-          <div className="plist" role="listbox" aria-label="Tokens">
+          <div className="plist" role="group" aria-label="Tokens">
             {rows.length === 0 && <div className="empty">No token found. Try another name, or pick ALL.</div>}
             {rows.map((t) => (
-              <button type="button" role="option" aria-selected={t.assetId === value} key={t.assetId} onClick={() => pick(t)}>
+              <button type="button" aria-current={t.assetId === value || undefined} key={t.assetId} onClick={() => pick(t)}>
                 <TokenIcon token={t} />
                 <span className="pt"><b>{t.symbol}</b><small>{chainLabel(t.blockchain)}</small></span>
                 <span className="pp">{formatPrice(t.price)}</span>

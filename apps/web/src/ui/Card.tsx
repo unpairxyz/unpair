@@ -1,4 +1,17 @@
-import { useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
+
+/** Arrow keys move through a radio group or tab list and pick, as the ARIA patterns ask. Only the chosen button is in the Tab order. */
+export function arrowKeys(e: KeyboardEvent<HTMLElement>): void {
+  const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+  if (!step) return;
+  const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+  const i = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next = items[(i + step + items.length) % items.length];
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
+  next.click();
+}
 
 export type Tab = "in" | "out";
 
@@ -18,9 +31,9 @@ export function CardHead<M extends string>({ tab, onTab, mode, modes, onMode, sl
   return (
     <>
       <div className="shead">
-        <div className="tabs" role="tablist" aria-label="Direction">
-          <button type="button" role="tab" aria-selected={tab === "in"} onClick={() => onTab("in")}>Swap</button>
-          <button type="button" role="tab" aria-selected={tab === "out"} onClick={() => onTab("out")}>Send out</button>
+        <div className="tabs" role="tablist" aria-label="Direction" onKeyDown={arrowKeys}>
+          <button type="button" role="tab" aria-selected={tab === "in"} tabIndex={tab === "in" ? 0 : -1} onClick={() => onTab("in")}>Swap</button>
+          <button type="button" role="tab" aria-selected={tab === "out"} tabIndex={tab === "out" ? 0 : -1} onClick={() => onTab("out")}>Send out</button>
         </div>
         <button type="button" className="gear" aria-expanded={open} aria-controls="card-settings" aria-label="Settings" onClick={() => setOpen(!open)}>
           <span>{current?.title.toUpperCase()} · {slippage / 100}%</span>
@@ -46,9 +59,9 @@ export function CardHead<M extends string>({ tab, onTab, mode, modes, onMode, sl
 /** A row of plain radio buttons in one black frame. */
 export function Segment<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: { value: T; title: string }[]; onChange: (v: T) => void }) {
   return (
-    <span className="seg" role="radiogroup" aria-label={label}>
+    <span className="seg" role="radiogroup" aria-label={label} onKeyDown={arrowKeys}>
       {options.map((o) => (
-        <button type="button" role="radio" key={o.value} aria-checked={o.value === value} onClick={() => onChange(o.value)}>{o.title}</button>
+        <button type="button" role="radio" key={o.value} aria-checked={o.value === value} tabIndex={o.value === value ? 0 : -1} onClick={() => onChange(o.value)}>{o.title}</button>
       ))}
     </span>
   );
