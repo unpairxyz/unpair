@@ -2,7 +2,8 @@
 
 The Zcash leg of Unpair, as a Rust crate on top of librustzcash.
 
-It is the core of the Unpair app and of the API's hosted swap path, and gives them:
+It is the core of the one-time wallet in the page, as WebAssembly, and of the
+API's hosted swap path, natively. It gives them:
 
 - a fresh landing address per swap, derived from the user's own seed,
 - lightwalletd access with failover across public servers and a chain tip cross-check,
@@ -13,7 +14,7 @@ It is the core of the Unpair app and of the API's hosted swap path, and gives th
 - Tor transport through arti behind the `tor` feature.
 
 We run no Zcash node. The seed never leaves the device that runs this crate: the
-user's machine for the app, or the operator's server for hosted swaps.
+browser tab for the one-time wallet, or the operator's server for hosted swaps.
 
 ## Flow
 
