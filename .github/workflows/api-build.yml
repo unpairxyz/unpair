@@ -43,4 +43,4 @@ jobs:
           path: |
             target/release/unpair-api
             target/release/unpair-api.sha256
-          retention-days: 30
+          retention-days: 7
