@@ -7,13 +7,13 @@
 //! are built on request, on a blocking thread, so proving never stalls the
 //! network streams.
 
-use std::collections::BTreeSet;
-use std::sync::mpsc;
+use std::collections::{BTreeSet, VecDeque};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
 use tokio::sync::oneshot;
-use unpair_zcash::keys::{landing_at_exact, orchard_only_at, Landing, Seed};
+use unpair_zcash::keys::{landing_at_exact, orchard_only_at, Landing, Seed, UnifiedFullViewingKey};
 use unpair_zcash::lightwalletd::{default_endpoints, Connector, Pool};
 use unpair_zcash::send::upgrade_notice;
 use unpair_zcash::wallet::{warm_proving_key, Balance, ShieldPolicy, ShieldWallet};
@@ -90,10 +90,6 @@ type PayRequest = (String, u64, oneshot::Sender<Result<PayoutInfo, String>>);
 
 enum Cmd {
     NextLanding(oneshot::Sender<Result<LandingInfo, String>>),
-    LandingAt {
-        index: u32,
-        reply: oneshot::Sender<Result<LandingInfo, String>>,
-    },
     Report(oneshot::Sender<Report>),
     Pay {
         to: String,
@@ -102,9 +98,18 @@ enum Cmd {
     },
 }
 
+/// Landings the worker derives ahead while it is idle, so a new swap takes
+/// one at once instead of waiting behind a scan or a proof.
+const PREPARED_LANDINGS: usize = 3;
+
 #[derive(Clone)]
 pub struct WalletHandle {
     tx: mpsc::Sender<Cmd>,
+    /// The viewing key: an address at a known index is derived here, with
+    /// no round trip to the worker.
+    ufvk: UnifiedFullViewingKey,
+    net: Network,
+    prepared: Arc<Mutex<VecDeque<LandingInfo>>>,
 }
 
 impl WalletHandle {
@@ -121,10 +126,17 @@ impl WalletHandle {
         self.ask(Cmd::NextLanding).await?
     }
 
-    /// The landing handed out before at `index`, for a swap that never got
-    /// its deposit. Reusing it keeps the wallet's address gap small.
-    pub async fn landing_at(&self, index: u32) -> Result<LandingInfo, String> {
-        self.ask(|reply| Cmd::LandingAt { index, reply }).await?
+    /// The landing at `index`: one handed out before for a swap that never
+    /// got its deposit, or the stand-in of a dry estimate. Derived from the
+    /// viewing key right here, so it never waits for the worker.
+    pub fn landing_at(&self, index: u32) -> Result<LandingInfo, String> {
+        let l = landing_at_exact(&self.ufvk, index).map_err(|e| e.to_string())?;
+        landing_info(&self.ufvk, l, &self.net)
+    }
+
+    /// A fresh landing the worker prepared ahead, if one is waiting.
+    pub fn take_prepared(&self) -> Option<LandingInfo> {
+        self.prepared.lock().ok()?.pop_front()
     }
 
     pub async fn report(&self) -> Result<Report, String> {
@@ -149,7 +161,9 @@ fn network(n: WalletNetwork) -> Network {
 /// could not open.
 pub fn start(cfg: HostedConfig) -> Result<WalletHandle, String> {
     let (tx, rx) = mpsc::channel::<Cmd>();
-    let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<(UnifiedFullViewingKey, Network), String>>();
+    let prepared: Arc<Mutex<VecDeque<LandingInfo>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let queue = prepared.clone();
 
     std::thread::Builder::new()
         .name("unpair-wallet".into())
@@ -167,8 +181,8 @@ pub fn start(cfg: HostedConfig) -> Result<WalletHandle, String> {
             rt.block_on(async move {
                 match open(&cfg).await {
                     Ok((wallet, pool)) => {
-                        let _ = ready_tx.send(Ok(()));
-                        run(wallet, &pool, cfg.interval, rx).await;
+                        let _ = ready_tx.send(Ok((wallet.ufvk().clone(), wallet.network())));
+                        run(wallet, &pool, cfg.interval, rx, queue).await;
                     }
                     Err(e) => {
                         let _ = ready_tx.send(Err(e));
@@ -178,10 +192,15 @@ pub fn start(cfg: HostedConfig) -> Result<WalletHandle, String> {
         })
         .map_err(|e| format!("spawn: {e}"))?;
 
-    ready_rx
+    let (ufvk, net) = ready_rx
         .recv()
         .map_err(|_| "wallet thread exited before it was ready".to_string())??;
-    Ok(WalletHandle { tx })
+    Ok(WalletHandle {
+        tx,
+        ufvk,
+        net,
+        prepared,
+    })
 }
 
 #[cfg(not(feature = "tor"))]
@@ -231,6 +250,7 @@ async fn run<C: Connector>(
     pool: &Pool<C>,
     interval: Duration,
     rx: mpsc::Receiver<Cmd>,
+    prepared: Arc<Mutex<VecDeque<LandingInfo>>>,
 ) {
     let net = wallet.network();
     let mut slot = Some(wallet);
@@ -255,14 +275,32 @@ async fn run<C: Connector>(
                 Cmd::NextLanding(reply) => {
                     let _ = reply.send(next_landing(slot.as_mut(), &net));
                 }
-                Cmd::LandingAt { index, reply } => {
-                    let _ = reply.send(landing_at(slot.as_ref(), &net, index));
-                }
                 Cmd::Report(reply) => {
                     fill(&mut report, slot.as_ref(), &shields, &payouts);
                     let _ = reply.send(report.clone());
                 }
                 Cmd::Pay { to, amount, reply } => pay_requests.push((to, amount, reply)),
+            }
+        }
+        // landings ahead, while nothing else is running
+        loop {
+            let short = prepared
+                .lock()
+                .map(|q| q.len() < PREPARED_LANDINGS)
+                .unwrap_or(false);
+            if !short {
+                break;
+            }
+            match next_landing(slot.as_mut(), &net) {
+                Ok(l) => {
+                    if let Ok(mut q) = prepared.lock() {
+                        q.push_back(l);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "could not prepare a landing");
+                    break;
+                }
             }
         }
         for (to, amount, reply) in pay_requests {
@@ -299,21 +337,15 @@ async fn run<C: Connector>(
 fn next_landing(wallet: Option<&mut ShieldWallet>, net: &Network) -> Result<LandingInfo, String> {
     let w = wallet.ok_or_else(|| "wallet is busy".to_string())?;
     let l = w.next_landing().map_err(|e| e.to_string())?;
-    landing_info(w, l, net)
+    landing_info(w.ufvk(), l, net)
 }
 
-fn landing_at(
-    wallet: Option<&ShieldWallet>,
+fn landing_info(
+    ufvk: &UnifiedFullViewingKey,
+    l: Landing,
     net: &Network,
-    index: u32,
 ) -> Result<LandingInfo, String> {
-    let w = wallet.ok_or_else(|| "wallet is busy".to_string())?;
-    let l = landing_at_exact(w.ufvk(), index).map_err(|e| e.to_string())?;
-    landing_info(w, l, net)
-}
-
-fn landing_info(w: &ShieldWallet, l: Landing, net: &Network) -> Result<LandingInfo, String> {
-    let (shielded, index) = orchard_only_at(w.ufvk(), l.index).map_err(|e| e.to_string())?;
+    let (shielded, index) = orchard_only_at(ufvk, l.index).map_err(|e| e.to_string())?;
     if index != l.index {
         return Err("shielded and transparent receivers are at different indexes".into());
     }
