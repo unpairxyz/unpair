@@ -219,7 +219,9 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const planError = planned && "error" in planned ? planned.error : null;
   const plan = planned && !("error" in planned) ? planned : null;
   const sendNum = plan && a ? Number(formatUnits(plan.send, a.decimals)) : 0;
-  const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction)) / b.price : 0;
+  // the one-time wallet quotes both hops from the tab, so the routing fee is taken twice
+  const hops = custody === "browser" ? 2 : 1;
+  const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction) ** hops) / b.price : 0;
   const minOut = out * (1 - slippage / 10_000);
   const same = sameToken(a, b);
   const pickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
