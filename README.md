@@ -36,8 +36,6 @@ hop.
 - `packages/client`: TypeScript shared by front ends: API client, signed quote checks, swap planning,
   address checks.
 - `packages/sdk`: TypeScript 1Click client with the fee rules, rounding and release timers.
-- `apps/desktop`: an earlier desktop app on the same crate. Paused: not built by CI, not released,
-  not offered on the page.
 - `vendor/`: two crates with small patches for the browser build, each with an `UNPAIR-PATCH.md`.
 - `docs/`: [threat model](docs/threat-model.md), [fees](docs/fees.md),
   [screening policy](docs/screening-policy.md), [self-host guide](docs/self-host.md).

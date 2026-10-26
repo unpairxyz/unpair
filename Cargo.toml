@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["packages/zcash", "packages/zcash-web", "apps/api", "apps/desktop/src-tauri"]
+members = ["packages/zcash", "packages/zcash-web", "apps/api"]
 exclude = ["vendor/rusqlite", "vendor/zcash_client_backend"]
 
 [workspace.package]
