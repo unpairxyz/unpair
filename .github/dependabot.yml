@@ -1,9 +1,11 @@
-# Dependency updates, batched so they do not flood the tree. Vendored crates
-# under vendor/ are path dependencies and are not touched.
+# Dependency updates, batched so they do not flood the tree, against develop
+# like every other change; main only receives merges from develop. Vendored
+# crates under vendor/ are path dependencies and are not touched.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
     groups:
@@ -11,6 +13,7 @@ updates:
         patterns: ["*"]
   - package-ecosystem: cargo
     directory: /
+    target-branch: develop
     schedule:
       interval: monthly
     groups:
@@ -18,6 +21,7 @@ updates:
         patterns: ["*"]
   - package-ecosystem: npm
     directory: /
+    target-branch: develop
     schedule:
       interval: monthly
     groups:
