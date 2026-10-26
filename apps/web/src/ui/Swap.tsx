@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { arrowKeys } from "./Card";
 import { Qr } from "./Qr";
 import { Fish, type Face } from "./Sprites";
 
@@ -11,9 +12,9 @@ export function Toggle<T extends string>({ label, value, options, onChange, smal
   small?: boolean;
 }) {
   return (
-    <div className={small ? "modes sm" : "modes"} role="radiogroup" aria-label={label}>
+    <div className={small ? "modes sm" : "modes"} role="radiogroup" aria-label={label} onKeyDown={arrowKeys}>
       {options.map((o) => (
-        <button type="button" role="radio" key={o.value} aria-checked={o.value === value} onClick={() => onChange(o.value)}>
+        <button type="button" role="radio" key={o.value} aria-checked={o.value === value} tabIndex={o.value === value ? 0 : -1} onClick={() => onChange(o.value)}>
           <span>{o.title}</span>
           <small>{o.hint}</small>
         </button>

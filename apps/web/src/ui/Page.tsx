@@ -80,7 +80,7 @@ export function Masthead() {
         <p>Each leg goes through a swap route, today NEAR Intents. The route sees its leg while it runs. Between the two swaps, you choose who holds the coins.</p>
       </Dialog>
       <Dialog open={open === "verify"} title="VERIFY THIS SITE" onClose={close}>
-        <p>Every quote is signed. The mark is drawn from the signature. Open the same quote on a second device: mark and code must match. A clone with its own server draws its own mark, so also check the signature against the key in our GitHub README. The address bar must say unpair.xyz.</p>
+        <p>Every quote is signed. The mark is drawn from the signature. Open the same quote on a second device: mark and code must match. A clone with its own server draws its own mark, so also check that the key this page pins matches quote_signing_pubkey at api.unpair.xyz/v1/config. The address bar must say unpair.xyz.</p>
       </Dialog>
       <Dialog open={open === "faq"} title="FAQ" onClose={close}>
         <p><b>What do I get?</b> The token you pick, on the chain you pick, at your address. It comes from a fresh source, not from your deposit.</p>
