@@ -467,37 +467,86 @@ export class School {
     this.sfx = this.sfx.filter((s) => s.life > 0);
   }
 
-  /** Bounding box of the fish, for drawing a quote mark centred. */
-  fit(scale: number): void {
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (let i = 0; i < this.n; i++) {
-      x0 = Math.min(x0, this.x[i]!);
-      x1 = Math.max(x1, this.x[i]!);
-      y0 = Math.min(y0, this.y[i]!);
-      y1 = Math.max(y1, this.y[i]!);
-    }
-    const k = (this.W * scale) / Math.max(x1 - x0, y1 - y0, 1);
-    const mx = (x0 + x1) / 2;
-    const my = (y0 + y1) / 2;
-    for (let i = 0; i < this.n; i++) {
-      this.x[i] = this.W / 2 + (this.x[i]! - mx) * k;
-      this.y[i] = this.H / 2 + (this.y[i]! - my) * k;
-    }
-  }
 }
 
-/** Draw the quote mark: a small white school, its shape fixed by the seed, with one red dot. */
+/**
+ * Draw the quote mark: a small school in the page colour on the ink disc, one red dot in the middle.
+ * The shape comes from the seed alone. The fish are placed along one to three seeded arcs, not simulated,
+ * and laid out in a unit square that is scaled to the canvas. So the same seed draws the same picture at
+ * any size, on any screen and in any browser, which is what the phone check compares.
+ */
 export function drawMark(cv: HTMLCanvasElement, seed: string): void {
-  const m = new School(cv, { n: 130, seed, trail: false, perc: 14, sep: 5, ink: "paper", lw: 1.4, len: 5, spread: 0.5 });
-  const R = rng(seed + "g");
-  const steps = 40 + ((R() * 90) | 0);
-  for (let i = 0; i < steps; i++) m.step();
-  m.fit(0.62);
-  m.draw();
-  m.ctx.fillStyle = SPOT;
-  m.ctx.beginPath();
-  m.ctx.arc(m.W / 2, m.H / 2, Math.max(2.5, m.W / 24), 0, 6.283);
-  m.ctx.fill();
+  const ctx = cv.getContext("2d");
+  if (!ctx) return;
+  readPalette();
+  const dpr = Math.min(3, globalThis.devicePixelRatio || 1);
+  const S = Math.max(1, cv.getBoundingClientRect().width || 62);
+  cv.width = Math.round(S * dpr);
+  cv.height = Math.round(S * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, S, S);
+
+  const R = rng(seed);
+  const N = 130;
+  const px = new Float64Array(N);
+  const py = new Float64Array(N);
+  const ux = new Float64Array(N);
+  const uy = new Float64Array(N);
+  const ph = new Float64Array(N);
+  // the arcs the school swims along: start, control and end point, and how wide the school is around each
+  const arcs = 1 + ((R() * 3) | 0);
+  const arc: number[][] = [];
+  for (let a = 0; a < arcs; a++) arc.push([R(), R(), R(), R(), R(), R(), 0.03 + R() * 0.09]);
+  for (let i = 0; i < N; i++) {
+    const [x0, y0, x1, y1, x2, y2, w] = arc[i % arcs]! as [number, number, number, number, number, number, number];
+    const t = R();
+    const u = 1 - t;
+    const bx = u * u * x0 + 2 * u * t * x1 + t * t * x2;
+    const by = u * u * y0 + 2 * u * t * y1 + t * t * y2;
+    let dx = 2 * u * (x1 - x0) + 2 * t * (x2 - x1);
+    let dy = 2 * u * (y1 - y0) + 2 * t * (y2 - y1);
+    const d = Math.hypot(dx, dy) || 1;
+    dx /= d;
+    dy /= d;
+    const off = (R() + R() + R() - 1.5) * w;
+    px[i] = bx - dy * off;
+    py[i] = by + dx * off;
+    const j = (R() - 0.5) * 0.7;
+    const c = Math.cos(j);
+    const s = Math.sin(j);
+    ux[i] = dx * c - dy * s;
+    uy[i] = dx * s + dy * c;
+    ph[i] = R() * 6.283;
+  }
+  // centre the school and fit it to the disc
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (let i = 0; i < N; i++) {
+    x0 = Math.min(x0, px[i]!);
+    x1 = Math.max(x1, px[i]!);
+    y0 = Math.min(y0, py[i]!);
+    y1 = Math.max(y1, py[i]!);
+  }
+  const k = (S * 0.62) / Math.max(x1 - x0, y1 - y0, 1e-6);
+  const mx = (x0 + x1) / 2;
+  const my = (y0 + y1) / 2;
+  const len = S * 0.08;
+  const wob = S * 0.02;
+  ctx.strokeStyle = pal.paper;
+  ctx.lineCap = "round";
+  ctx.lineWidth = Math.max(0.9, S * 0.022);
+  ctx.beginPath();
+  for (let i = 0; i < N; i++) {
+    const x = S / 2 + (px[i]! - mx) * k;
+    const y = S / 2 + (py[i]! - my) * k;
+    const w = Math.sin(ph[i]!) * wob;
+    ctx.moveTo(x + ux[i]! * len * 0.5, y + uy[i]! * len * 0.5);
+    ctx.quadraticCurveTo(x - uy[i]! * w, y + ux[i]! * w, x - ux[i]! * len * 0.5, y - uy[i]! * len * 0.5);
+  }
+  ctx.stroke();
+  ctx.fillStyle = SPOT;
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, Math.max(2.5, S / 24), 0, 6.283);
+  ctx.fill();
 }
 
 export const reducedMotion = (): boolean => globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
