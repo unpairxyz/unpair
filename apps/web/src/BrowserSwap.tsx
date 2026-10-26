@@ -62,6 +62,40 @@ export function BrowserSwap(props: Props) {
   const [hop2, setHop2] = useState<{ quote: QuoteResponse; txid: string | null; signed: SignedQuote | null; verified: boolean | null } | null>(null);
   const [hop2Final, setHop2Final] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
+  // what a dry hop-two quote says this swap delivers, asked once for the deposit screen
+  const [estimate, setEstimate] = useState<string | null>(null);
+  const estimateAsked = useRef(false);
+  useEffect(() => {
+    const quote0 = props.recovery === undefined ? props.quote : undefined;
+    const landing0 = props.recovery === undefined ? props.landing : undefined;
+    if (phase !== "deposit" || !quote0 || !landing0 || !plan || !outToken || !zec || estimateAsked.current) return;
+    estimateAsked.current = true;
+    let amount = BigInt(quote0.quote.amountOut) - hop2FeeReserveZat(1);
+    if (plan.mode === "quiet" && amount > 0n) amount = roundDownSignificant(amount, 2).amount;
+    if (amount <= 0n) return;
+    const deadlineIso = new Date(Date.now() + 15 * 60_000).toISOString();
+    const request: QuoteInput = {
+      swapType: "EXACT_INPUT",
+      slippageTolerance: plan.slippageBps,
+      originAsset: zec.assetId,
+      depositType: "ORIGIN_CHAIN",
+      destinationAsset: outToken.assetId,
+      amount: amount.toString(),
+      refundTo: landing0.transparent,
+      refundType: "ORIGIN_CHAIN",
+      recipient: plan.recipient,
+      recipientType: "DESTINATION_CHAIN",
+      deadline: new Date(deadlineIso),
+      dry: true,
+    };
+    let alive = true;
+    const ask = api ? api.quote({ ...request, deadline: deadlineIso, dry: true }).then((s) => s.quote) : client.dryQuote(request);
+    ask.then((r) => alive && setEstimate(r.quote.amountOutFormatted ?? null)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, props, outToken, zec]);
   const outStarted = useRef(false);
   // bumped by the retry button, the only thing that may start hop two again after a failure
   const [attempt, setAttempt] = useState(0);
@@ -287,6 +321,7 @@ export function BrowserSwap(props: Props) {
           <div className="wtitle"><b>SEND IT!</b><span className="chip">on {chainLabel(props.token.blockchain)}</span></div>
           <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={props.signed && props.verified ? "Signed by Unpair" : "Signed by the route"} />
           <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {props.token.symbol}</div></div>
+          {estimate && <div className="box"><span className="lbl">You get about</span><div className="big">{estimate} {outToken?.symbol ?? ""}</div></div>}
           <div className="box"><span className="lbl">To this address, once</span><Address value={depositAddress} qr /></div>
           {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
           {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}

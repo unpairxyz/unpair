@@ -24,6 +24,7 @@ import { BrowserSwap } from "./BrowserSwap";
 import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWallet";
 import type { Landing } from "./wallet/types";
+import { hop2FeeReserveZat } from "./wallet/fees";
 import {
   Address,
   AddressRow,
@@ -223,8 +224,11 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const hops = custody === "browser" ? 2 : 1;
   // what the button says while the form works: the one-time wallet has a loading step before the quote
   const [busyText, setBusyText] = useState("GETTING A QUOTE");
-  const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction) ** hops) / b.price : 0;
+  // the two-hop keepers keep a network fee reserve back from the ZEC before hop two; it comes off the estimate too
+  const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(hop2FeeReserveZat(1), ZEC_DECIMALS)) * zec.price) / b.price : 0;
+  const out = a && b && b.price > 0 ? Math.max(0, (sendNum * a.price * (1 - feeFraction) ** hops) / b.price - reserveOut) : 0;
   const minOut = out * (1 - slippage / 10_000);
+  const small = a !== null && sendNum > 0 && sendNum * a.price < 20;
   // the same token in and out is fine through the pool: two hops, and only the link is gone
   const same = sameToken(a, b);
   const pickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
@@ -435,6 +439,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       {a && b && plan && !(same && custody === "own") && (
         <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
       )}
+      {small && a && b && plan && <p className="fine">Small swaps lose more to fixed network fees. The exact amount comes with the quote.</p>}
       {custody === "server" && hostedInfo && (
         <p className="fine">
           Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.
@@ -714,6 +719,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
           />
         )}
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {direction === "out" ? "ZEC" : token.symbol}</div></div>
+        <div className="box"><span className="lbl">You get</span><div className="big">{q.amountOutFormatted} {direction === "out" ? token.symbol : "ZEC"}</div></div>
         <div className="box"><span className="lbl">{direction === "out" ? "To the route's Zcash address, once" : "To this address, once"}</span><Address value={depositAddress} qr={!second} /></div>
         {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
         {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
@@ -806,6 +812,7 @@ function HostedTracking({ id, first, signed, tokens, verified, onStage, onDone }
         <div className="wtitle"><b>SEND IT!</b><span className="chip">on {chainLabel(inToken?.blockchain ?? "")}</span></div>
         <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={verified ? "Signed by Unpair" : "Quote from the server"} />
         <div className="box"><span className="lbl">Send exactly</span><div className="big">{amountIn}</div></div>
+        {swap.estimate_out && <div className="box"><span className="lbl">You get about</span><div className="big">{swap.estimate_out} {outToken?.symbol ?? ""}</div></div>}
         <div className="box"><span className="lbl">To this address, once</span><Address value={swap.deposit_address} qr /></div>
         {swap.deposit_memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{swap.deposit_memo}</div></div>}
         <p className="fine">Pay by {new Date(swap.deposit_deadline_unix * 1000).toLocaleString()}.</p>
