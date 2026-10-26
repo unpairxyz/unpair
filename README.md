@@ -15,9 +15,10 @@ Status: pre-alpha. Nothing here is ready to use with real funds.
 4. In quiet mode the amount is rounded and released after a random delay, then swapped out from a
    fresh shielded source.
 
-The key that receives and shields your ZEC lives on your device, in the open-source Unpair app. We
-hold no funds and no key, run no liquidity and run no node. Revenue is a routing fee shown before
-every trade and capped in code.
+With the one-time wallet or your own wallet, the key that receives and shields your ZEC lives on
+your device and we hold no funds and no key. With the Unpair server, we hold your ZEC between the
+two hops, under caps shown before you deposit. We run no liquidity and no node. Revenue is a routing
+fee shown before every trade and capped in code.
 
 ## Develop
 
@@ -43,7 +44,7 @@ Packages live under `packages/`, apps under `apps/`.
 - `apps/desktop`: the Unpair app, Tauri on the Rust crate. Holds the key in the system keychain, issues a landing address per swap, shields on sync. Second hop and signed releases to come. See its README.
 - `packages/client`: TypeScript shared by the web page and the app: API client, signed quote checks, swap planning, address checks.
 - `apps/web`: static web page for people who already run a wallet that shields on receipt. Fast and quiet modes, client-side quotes. See its README.
-- `apps/api`: Rust service for screening, signed quotes and status. Holds no key. See its README.
+- `apps/api`: Rust service for screening, signed quotes and status, and the transit wallet of the server path when enabled. See its README.
 - `docs/`: [threat model](docs/threat-model.md), [fees](docs/fees.md), [screening policy](docs/screening-policy.md), [self-host guide](docs/self-host.md).
 
 ## Limits we state up front
