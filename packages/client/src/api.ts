@@ -86,6 +86,27 @@ export interface HostedCreateRequest {
   slippageTolerance?: number;
 }
 
+/** What the form asks before the deposit address: dry quotes of both hops, nothing created. */
+export interface EstimateRequest {
+  mode: "fast" | "quiet";
+  originAsset: string;
+  /** Base units of the origin asset. */
+  amount: string;
+  destinationAsset: string;
+  recipient: string;
+  refundTo: string;
+  slippageTolerance?: number;
+  /** Who keeps the ZEC between the hops. The one-time wallet pays the routing fee on hop two as well. */
+  custody?: "server" | "browser";
+}
+
+export interface Estimate {
+  /** ZEC hop one lands, as the route formats it. */
+  zec_out: string;
+  /** What hop two delivers; the ZEC itself when ZEC is the destination. Null when the route gave no hop-two quote. */
+  estimate_out: string | null;
+}
+
 export interface HostedCreated {
   swap: HostedSwap;
   quote: SignedQuote;
@@ -203,6 +224,11 @@ export class ApiClient {
   status(depositAddress: string, depositMemo?: string): Promise<StatusResponse> {
     const q = depositMemo ? `?depositMemo=${encodeURIComponent(depositMemo)}` : "";
     return this.call("GET", `/v1/status/${encodeURIComponent(depositAddress)}${q}`);
+  }
+
+  /** Dry quotes of both hops for the form, so it shows the number the deposit screen will show. */
+  estimate(request: EstimateRequest): Promise<Estimate> {
+    return this.call("POST", "/v1/estimate", request);
   }
 
   /** Start a hosted swap. The server screens, takes a fresh landing and quotes hop one. */
