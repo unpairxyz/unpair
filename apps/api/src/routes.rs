@@ -1,7 +1,6 @@
 //! HTTP routes.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -32,23 +31,15 @@ pub struct Hosted {
     pub wallet: WalletHandle,
     pub store: Store,
     pub config: HostedConfig,
-    /// The wallet's first landing, the ZEC side of every dry estimate. Read
-    /// once: the wallet worker answers only between its sync and payout
-    /// work, and an estimate must not wait behind a proof.
+    /// The wallet's first landing, the ZEC side of every dry estimate.
     pub stand_in: tokio::sync::OnceCell<LandingInfo>,
 }
 
 impl Hosted {
-    /// The cached stand-in, read from the worker on first use with a bound
-    /// on the wait.
+    /// The cached stand-in, derived on first use.
     pub async fn stand_in(&self) -> Result<&LandingInfo, ApiError> {
         self.stand_in
-            .get_or_try_init(|| async {
-                tokio::time::timeout(Duration::from_secs(20), self.wallet.landing_at(0))
-                    .await
-                    .map_err(|_| ApiError::Upstream("the wallet is busy".into()))?
-                    .map_err(ApiError::Internal)
-            })
+            .get_or_try_init(|| async { self.wallet.landing_at(0).map_err(ApiError::Internal) })
             .await
     }
 }
@@ -760,9 +751,14 @@ async fn hosted_create(
 
     // A landing handed out before and never paid serves first, so swaps that
     // never got a deposit do not use up the wallet's address gap.
+    // then one the worker prepared ahead, so the swap does not wait behind
+    // a scan or a proof; the worker itself only when neither is there
     let landing = match h.store.take_free_landing()? {
-        Some(index) => h.wallet.landing_at(index).await,
-        None => h.wallet.next_landing().await,
+        Some(index) => h.wallet.landing_at(index),
+        None => match h.wallet.take_prepared() {
+            Some(l) => Ok(l),
+            None => h.wallet.next_landing().await,
+        },
     }
     .map_err(ApiError::Internal)?;
     let now = now_unix();
