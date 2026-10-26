@@ -1,7 +1,7 @@
 {
   "name": "@unpair/client",
   "version": "0.1.0",
-  "description": "Unpair front-end logic shared by the web page and the desktop app: API client, signed quote checks, swap planning, Zcash address checks.",
+  "description": "Unpair front-end logic: API client, signed quote checks, swap planning, Zcash address checks.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
