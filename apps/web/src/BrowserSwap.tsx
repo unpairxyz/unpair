@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ZEC_DECIMALS, formatUnits, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
 import { api, client, config, describeError, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
-import { Address, DoneBurst, GoButton, Mascot, QuoteMark, StatusStrip, type HeroStage } from "./ui";
+import { Address, DoneBurst, GoButton, Mascot, StatusStrip, VerifyStrip, type HeroStage } from "./ui";
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
 import type { Balance, Landing, Upgrade } from "./wallet/types";
@@ -265,10 +265,7 @@ export function BrowserSwap(props: Props) {
       return (
         <div>
           <div className="wtitle"><b>SEND IT!</b><span className="chip">on {chainLabel(props.token.blockchain)}</span></div>
-          <div className="markrow">
-            <QuoteMark seed={seed} />
-            <div><b>{props.signed && props.verified ? "Quote signed by Unpair" : "Quote signed by the route"}</b> <span className="code">{shortCode(seed)}</span></div>
-          </div>
+          <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={props.signed && props.verified ? "Signed by Unpair" : "Signed by the route"} />
           <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {props.token.symbol}</div></div>
           <div className="box"><span className="lbl">To this address, once</span><Address value={depositAddress} qr /></div>
           {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
