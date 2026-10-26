@@ -19,7 +19,7 @@ export function PhoneCheck({ open, url, error, seed, code, onClose }: { open: bo
   return (
     <Dialog open={open} title="CHECK ON YOUR PHONE" onClose={onClose}>
       {url ? <Qr value={url} label="QR code to open this quote on your phone" /> : <p className="fine">{error ?? "Getting a link for your phone."}</p>}
-      {open && <div className="vmatch"><QuoteMark seed={seed} size={48} /><b className="code">{code}</b></div>}
+      {open && <div className="vmatch"><QuoteMark seed={seed} size={120} /><b className="code">{code}</b></div>}
       <p>Scan with your phone camera. The phone must show this mark and this code. If not, do not pay.</p>
     </Dialog>
   );
