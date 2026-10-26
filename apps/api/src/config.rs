@@ -30,6 +30,9 @@ pub struct Config {
     pub hosted: Option<HostedConfig>,
     /// Bearer token for the operator report. Required when hosted is on.
     pub operator_token: Option<String>,
+    /// Requests per minute one client address may make to the endpoints that
+    /// cost something (quote, hosted swap, screen, handoff). Zero turns it off.
+    pub rate_limit_per_min: u32,
 }
 
 /// Default per-swap cap, 1 ZEC in zatoshis.
@@ -247,6 +250,12 @@ impl Config {
             }),
         };
         let operator_token = var("UNPAIR_OPERATOR_TOKEN");
+        let rate_limit_per_min: u32 = var("UNPAIR_RATE_LIMIT_PER_MIN")
+            .unwrap_or_else(|| "20".into())
+            .parse()
+            .map_err(|e| {
+                ConfigError::Invalid("UNPAIR_RATE_LIMIT_PER_MIN".into(), format!("{e}"))
+            })?;
         if hosted.is_some() && operator_token.as_deref().is_none_or(|t| t.len() < 24) {
             return Err(ConfigError::Invalid(
                 "UNPAIR_OPERATOR_TOKEN".into(),
@@ -270,6 +279,7 @@ impl Config {
             geofence,
             hosted,
             operator_token,
+            rate_limit_per_min,
         })
     }
 }

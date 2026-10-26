@@ -122,7 +122,7 @@ impl Mode {
 }
 
 /// Everything the server keeps about one hosted swap.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Swap {
     pub id: String,
     pub created_unix: u64,
@@ -229,22 +229,6 @@ pub fn release_delay_secs(mode: Mode) -> u64 {
             blocks * SECONDS_PER_BLOCK
         }
     }
-}
-
-/// Round down to the largest value of the form m * 10^k with m in 1, 2, 5:
-/// the coarse grid the SDK uses for quiet mode. A payout on a shared grid
-/// does not match its deposit to the unit. The remainder stays in the wallet.
-pub fn round_down_coarse(zat: u64) -> u64 {
-    if zat == 0 {
-        return 0;
-    }
-    let digits = zat.ilog10();
-    let decade = 10u64.pow(digits);
-    [5, 2, 1]
-        .into_iter()
-        .map(|m| m * decade)
-        .find(|&c| c <= zat)
-        .unwrap_or(decade)
 }
 
 /// RFC 3339 UTC timestamp for a unix time, for 1Click deadlines.
@@ -781,20 +765,6 @@ mod tests {
         assert_eq!(store.take_free_landing().unwrap(), Some(3));
         assert_eq!(store.take_free_landing().unwrap(), Some(7));
         assert_eq!(store.take_free_landing().unwrap(), None);
-    }
-
-    #[test]
-    fn coarse_rounding_matches_the_sdk() {
-        // 4.93 ZEC -> 2 ZEC, 0.37 ZEC -> 0.2 ZEC, 7 ZEC -> 5 ZEC
-        assert_eq!(round_down_coarse(493_000_000), 200_000_000);
-        assert_eq!(round_down_coarse(37_000_000), 20_000_000);
-        assert_eq!(round_down_coarse(700_000_000), 500_000_000);
-        assert_eq!(round_down_coarse(100), 100);
-        assert_eq!(round_down_coarse(150), 100);
-        assert_eq!(round_down_coarse(999), 500);
-        assert_eq!(round_down_coarse(1), 1);
-        assert_eq!(round_down_coarse(0), 0);
-        assert!(round_down_coarse(MIN_ZAT + 1) >= MIN_ZAT);
     }
 
     #[test]

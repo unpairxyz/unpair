@@ -37,6 +37,7 @@ pub struct LandingInfo {
 #[derive(Clone, Serialize, Default)]
 pub struct BalanceInfo {
     pub ironwood_spendable: u64,
+    pub ironwood_notes: u64,
     pub ironwood_total: u64,
     pub unshielded: u64,
     pub other_pools: u64,
@@ -46,6 +47,7 @@ impl From<Balance> for BalanceInfo {
     fn from(b: Balance) -> Self {
         Self {
             ironwood_spendable: b.ironwood_spendable,
+            ironwood_notes: b.ironwood_notes,
             ironwood_total: b.ironwood_total,
             unshielded: b.unshielded,
             other_pools: b.orchard_total + b.sapling_total,
@@ -66,6 +68,9 @@ pub struct UpgradeInfo {
 pub struct PayoutInfo {
     pub txid: String,
     pub fee: u64,
+    /// Set when the transaction was built and stored but the broadcast call
+    /// failed. It may still be on the chain; the driver keeps the txid.
+    pub broadcast_error: Option<String>,
 }
 
 /// Operator view. No addresses, no swap data.
@@ -371,13 +376,22 @@ async fn pay<C: Connector>(
     .map_err(|e| format!("proving thread: {e}"))?;
     *slot = Some(w);
     let payout = built.map_err(|e| e.to_string())?;
-    pool.send_raw_transaction(payout.raw.clone())
-        .await
-        .map_err(|e| e.to_string())?;
-    tracing::info!(txid = %payout.txid, "payout broadcast");
+    // The transaction is built and stored at this point. A failed broadcast
+    // keeps the txid: the node may have taken it before the reply was lost.
+    let broadcast_error = match pool.send_raw_transaction(payout.raw.clone()).await {
+        Ok(_) => {
+            tracing::info!(txid = %payout.txid, "payout broadcast");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(txid = %payout.txid, error = %e, "payout built, broadcast failed");
+            Some(e.to_string())
+        }
+    };
     Ok(PayoutInfo {
         txid: payout.txid.to_string(),
         fee: payout.fee.into_u64(),
+        broadcast_error,
     })
 }
 

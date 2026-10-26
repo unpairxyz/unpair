@@ -306,6 +306,14 @@ async fn hop_two(state: &AppState, swap: &mut Swap, now: u64) {
     swap.hop2_txid = Some(paid.txid.clone());
     swap.state = State::RoutingOut;
     swap.last_error = None;
+    if let Some(e) = &paid.broadcast_error {
+        // Built and stored, broadcast unsure. The route's status decides:
+        // it either sees the transaction or reports nothing, and a REFUNDED
+        // or FAILED status brings the swap back to the pool as before.
+        tracing::warn!(id = %swap.id, txid = %paid.txid, error = %e, "hop two broadcast unsure");
+        swap.last_error = Some(format!("hop two broadcast: {e}"));
+        swap.note = Some("The payout was built but its broadcast did not confirm. The server keeps watching the route.".into());
+    }
     swap.updated_unix = now_unix();
     if let Err(e) = hosted.store.update(swap) {
         tracing::error!(id = %swap.id, error = %e, "could not store the payout txid");

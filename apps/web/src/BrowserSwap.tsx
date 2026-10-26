@@ -14,9 +14,8 @@ import { Address, DoneBurst, GoButton, Mascot, StatusStrip, VerifyStrip, type He
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
 import type { Balance, Landing, Upgrade } from "./wallet/types";
+import { hop2FeeReserveZat } from "./wallet/fees";
 
-/** Kept back from the spendable balance for the hop-two fee. ZIP 317 asks 15,000 zats for one note in and one output out. */
-const HOP2_FEE_RESERVE_ZAT = 20_000n;
 const SYNC_EVERY_MS = 30_000;
 
 type Phase = "recover" | "deposit" | "pool" | "out" | "done";
@@ -129,7 +128,8 @@ export function BrowserSwap(props: Props) {
   }, [phase, balance]);
 
   const spendable = BigInt(balance?.ironwood_spendable ?? 0);
-  const canSend = spendable > HOP2_FEE_RESERVE_ZAT && !(upgrade?.sending_paused ?? false);
+  // the fee grows with the notes spent, so the reserve follows the note count
+  const canSend = spendable > hop2FeeReserveZat(balance?.ironwood_notes ?? 1) && !(upgrade?.sending_paused ?? false);
   useEffect(() => {
     if (phase !== "pool" || !canSend || !plan) return;
     if (plan.mode === "fast") {
@@ -162,7 +162,7 @@ export function BrowserSwap(props: Props) {
         await wallet.sync();
         const b = await wallet.balance();
         setBalance(b);
-        let amount = BigInt(b.ironwood_spendable) - HOP2_FEE_RESERVE_ZAT;
+        let amount = BigInt(b.ironwood_spendable) - hop2FeeReserveZat(b.ironwood_notes);
         if (amount <= 0n) throw new Error("Nothing to send.");
         // quiet mode sends an amount cut to two digits, so the two hops do not match to the unit; the rest, under a tenth, stays in this wallet
         if (plan.mode === "quiet") amount = roundDownSignificant(amount, 2).amount;
@@ -190,6 +190,8 @@ export function BrowserSwap(props: Props) {
         const paid = await wallet.pay(to, BigInt(r.quote.quote.amountIn));
         setHop2((h) => (h ? { ...h, txid: paid.txid } : h));
         setWorking(null);
+        // built and stored, broadcast unsure: keep the txid, watch the route, and leave the retry open
+        if (paid.broadcast_error) setError("The transaction was built but sending it did not confirm. It may still be on the chain. The page keeps watching the route.");
       } catch (e) {
         setError(describeError(e));
         setWorking(null);

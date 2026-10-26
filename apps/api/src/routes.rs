@@ -20,8 +20,10 @@ use crate::error::ApiError;
 use crate::handoff::{Handoff, PutError};
 use crate::hosted::{self, new_id, parse_rfc3339, Mode, State as SwapState, Store, Swap, SwapView};
 use crate::oneclick::{addresses_to_screen, chain_of_asset, AppFee, OneClick};
+use crate::ratelimit::RateLimit;
 use crate::screening::{geofence, Screener, Verdict};
 use crate::sign::QuoteSigner;
+use crate::tokens::TokenCache;
 use crate::wallet_worker::{now_unix, Report, WalletHandle};
 
 /// The hosted swap service, present when the operator gave this server a seed.
@@ -39,7 +41,37 @@ pub struct AppState {
     pub oneclick: OneClick,
     pub hosted: Option<Hosted>,
     pub handoff: Handoff,
+    pub tokens: TokenCache,
+    pub limit: RateLimit,
     pub started_at: std::time::Instant,
+}
+
+/// The client's address as the edge reports it. Behind Cloudflare that is
+/// `cf-connecting-ip`; a plain reverse proxy sets `x-forwarded-for`. With
+/// neither there is one shared bucket, which is right for a box that is
+/// only reached through its proxy.
+fn client_key(headers: &HeaderMap) -> String {
+    let from = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && v.len() <= 64)
+            .map(str::to_string)
+    };
+    from("cf-connecting-ip")
+        .or_else(|| from("x-forwarded-for"))
+        .unwrap_or_else(|| "shared".into())
+}
+
+/// Refuse when this client has used its minute.
+fn rate_limit(s: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
+    if s.limit.allow(&client_key(headers), now_unix()) {
+        Ok(())
+    } else {
+        Err(ApiError::TooMany)
+    }
 }
 
 pub type Shared = Arc<AppState>;
@@ -60,12 +92,15 @@ pub fn router(state: Shared) -> Router {
         .route("/health", get(health))
         .route("/v1/config", get(config))
         .route("/v1/pubkey", get(pubkey))
+        .route("/v1/tokens", get(tokens))
         .route("/v1/screen", post(screen))
         .route("/v1/quote", post(quote))
         .route("/v1/status/{deposit_address}", get(status))
         .route("/v1/hosted/swaps", post(hosted_create))
         .route("/v1/hosted/swaps/{id}", get(hosted_get))
         .route("/v1/hosted/report", get(hosted_report))
+        .route("/v1/operator/swaps/{id}", get(operator_swap))
+        .route("/v1/operator/swaps/{id}/payout", post(operator_payout))
         .route("/v1/handoff", post(handoff_put))
         .route("/v1/handoff/{id}", get(handoff_get))
         .layer(cors)
@@ -74,7 +109,8 @@ pub fn router(state: Shared) -> Router {
             StatusCode::REQUEST_TIMEOUT,
             std::time::Duration::from_secs(45),
         ))
-        .layer(SetResponseHeaderLayer::overriding(
+        // Every answer is private unless the handler says otherwise (the token list does).
+        .layer(SetResponseHeaderLayer::if_not_present(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
         ))
@@ -170,11 +206,30 @@ pub struct ScreenResponse {
     pub reason: Option<String>,
 }
 
+/// The route's token list, cached here so the page never calls the route.
+async fn tokens(
+    State(s): State<Shared>,
+) -> Result<([(header::HeaderName, HeaderValue); 1], Json<Value>), ApiError> {
+    let list = s
+        .tokens
+        .get(&s.oneclick)
+        .await
+        .map_err(ApiError::Upstream)?;
+    Ok((
+        [(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=300"),
+        )],
+        Json(list),
+    ))
+}
+
 async fn screen(
     State(s): State<Shared>,
     headers: HeaderMap,
     Json(req): Json<ScreenRequest>,
 ) -> Result<Json<ScreenResponse>, ApiError> {
+    rate_limit(&s, &headers)?;
     let geo = geofence(&s.config.geofence, &headers);
     if !geo.allowed {
         return Ok(Json(ScreenResponse {
@@ -205,16 +260,94 @@ pub struct SignedQuote {
     pub public_key_hex: String,
 }
 
+/// A quote request as the page sends it. Only these fields reach the route,
+/// so the partner key cannot be used to send anything else.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuoteBody {
+    #[serde(default)]
+    pub dry: bool,
+    #[serde(rename = "swapType")]
+    pub swap_type: String,
+    #[serde(rename = "slippageTolerance")]
+    pub slippage_tolerance: u32,
+    #[serde(rename = "originAsset")]
+    pub origin_asset: String,
+    #[serde(rename = "depositType")]
+    pub deposit_type: String,
+    #[serde(rename = "destinationAsset")]
+    pub destination_asset: String,
+    pub amount: String,
+    #[serde(rename = "refundTo")]
+    pub refund_to: String,
+    #[serde(rename = "refundType")]
+    pub refund_type: String,
+    pub recipient: String,
+    #[serde(rename = "recipientType")]
+    pub recipient_type: String,
+    pub deadline: String,
+    #[serde(rename = "depositMode", skip_serializing_if = "Option::is_none")]
+    pub deposit_mode: Option<String>,
+}
+
+impl QuoteBody {
+    /// Bounds on every field. Plain words back when one is off.
+    fn check(&self) -> Result<(), ApiError> {
+        let bad = |m: &str| Err(ApiError::BadRequest(m.into()));
+        if !["EXACT_INPUT", "EXACT_OUTPUT", "ANY_INPUT"].contains(&self.swap_type.as_str()) {
+            return bad("swapType is not one the page uses");
+        }
+        if self.slippage_tolerance > 10_000 {
+            return bad("slippageTolerance must be at most 10000 bps");
+        }
+        if self.amount.is_empty()
+            || self.amount.len() > 40
+            || !self.amount.bytes().all(|b| b.is_ascii_digit())
+        {
+            return bad("amount must be a whole number of base units");
+        }
+        if !["ORIGIN_CHAIN", "INTENTS"].contains(&self.deposit_type.as_str())
+            || !["ORIGIN_CHAIN", "INTENTS"].contains(&self.refund_type.as_str())
+            || !["DESTINATION_CHAIN", "INTENTS"].contains(&self.recipient_type.as_str())
+        {
+            return bad("deposit, refund or recipient type is not one the page uses");
+        }
+        if let Some(m) = &self.deposit_mode {
+            if !["SIMPLE", "MEMO"].contains(&m.as_str()) {
+                return bad("depositMode is not one the page uses");
+            }
+        }
+        for (name, v, max) in [
+            ("originAsset", &self.origin_asset, 128),
+            ("destinationAsset", &self.destination_asset, 128),
+            ("refundTo", &self.refund_to, 256),
+            ("recipient", &self.recipient, 256),
+            ("deadline", &self.deadline, 40),
+        ] {
+            if v.is_empty() {
+                return Err(ApiError::BadRequest(format!("{name} is required")));
+            }
+            if v.len() > max || v.chars().any(|c| c.is_control()) {
+                return Err(ApiError::BadRequest(format!("{name} is not valid")));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Screen, forward to 1Click with the server's fee, sign the result.
 async fn quote(
     State(s): State<Shared>,
     headers: HeaderMap,
-    Json(body): Json<Value>,
+    Json(req): Json<QuoteBody>,
 ) -> Result<Json<SignedQuote>, ApiError> {
+    rate_limit(&s, &headers)?;
     let geo = geofence(&s.config.geofence, &headers);
     if !geo.allowed {
         return Err(ApiError::Forbidden(geo.reason.unwrap_or_default()));
     }
+    req.check()?;
+    let body = serde_json::to_value(&req).map_err(|e| ApiError::Internal(e.to_string()))?;
     for (address, chain) in addresses_to_screen(&body)? {
         let v = s.screener.screen(&address, &chain).await?;
         log_verdict(&v, &chain);
@@ -301,6 +434,7 @@ async fn hosted_create(
     Json(req): Json<HostedCreate>,
 ) -> Result<Json<HostedCreated>, ApiError> {
     let h = hosted_of(&s)?;
+    rate_limit(&s, &headers)?;
     let geo = geofence(&s.config.geofence, &headers);
     if !geo.allowed {
         return Err(ApiError::Forbidden(geo.reason.unwrap_or_default()));
@@ -477,9 +611,7 @@ async fn hosted_get(
     Path(id): Path<String>,
 ) -> Result<Json<SwapView>, ApiError> {
     let h = hosted_of(&s)?;
-    if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(ApiError::NotFound);
-    }
+    swap_id(&id)?;
     let swap = h.store.get(&id)?.ok_or(ApiError::NotFound)?;
     Ok(Json(swap.view()))
 }
@@ -493,12 +625,8 @@ pub struct OperatorReport {
     pub max_open: u32,
 }
 
-/// Operator view: wallet balance and swap counts. Bearer token required.
-async fn hosted_report(
-    State(s): State<Shared>,
-    headers: HeaderMap,
-) -> Result<Json<OperatorReport>, ApiError> {
-    let h = hosted_of(&s)?;
+/// The operator's bearer token, compared in constant time.
+fn operator_auth(s: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
     let expected = s
         .config
         .operator_token
@@ -512,6 +640,131 @@ async fn hosted_report(
     if !constant_time_eq(given.as_bytes(), expected.as_bytes()) {
         return Err(ApiError::Unauthorized);
     }
+    Ok(())
+}
+
+fn swap_id(id: &str) -> Result<(), ApiError> {
+    if id.len() != 32 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ApiError::NotFound);
+    }
+    Ok(())
+}
+
+/// The whole swap row, for the operator. Token required.
+async fn operator_swap(
+    State(s): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<Swap>, ApiError> {
+    let h = hosted_of(&s)?;
+    operator_auth(&s, &headers)?;
+    swap_id(&id)?;
+    let swap = h.store.get(&id)?.ok_or(ApiError::NotFound)?;
+    Ok(Json(swap))
+}
+
+#[derive(Deserialize)]
+pub struct OperatorPayout {
+    /// A transparent Zcash address, t1 or t3, that gets the ZEC.
+    pub to: String,
+    /// Zatoshis. Defaults to the swap's hop two amount.
+    pub amount_zat: Option<u64>,
+}
+
+#[derive(Serialize)]
+pub struct OperatorPaid {
+    pub id: String,
+    pub txid: String,
+    pub amount_zat: u64,
+    pub fee_zat: u64,
+    pub state: SwapState,
+}
+
+/// Pay a stuck swap out by hand. Only a swap whose hop two failed or whose
+/// payout result is unknown qualifies. The payout is recorded on the swap
+/// before the wallet sees it, like the driver does; on success the swap is
+/// closed as `done` with the txid in its note.
+async fn operator_payout(
+    State(s): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<OperatorPayout>,
+) -> Result<Json<OperatorPaid>, ApiError> {
+    let h = hosted_of(&s)?;
+    operator_auth(&s, &headers)?;
+    swap_id(&id)?;
+    let mut swap = h.store.get(&id)?.ok_or(ApiError::NotFound)?;
+    if swap.state != SwapState::Failed && !crate::driver::payout_unresolved(&swap) {
+        return Err(ApiError::BadRequest(
+            "only a swap whose hop two failed or has an unknown payout can be paid out by hand"
+                .into(),
+        ));
+    }
+    let to = req.to.trim().to_string();
+    if !(to.starts_with("t1") || to.starts_with("t3")) || to.len() > 64 {
+        return Err(ApiError::BadRequest(
+            "to must be a transparent Zcash address, t1 or t3".into(),
+        ));
+    }
+    let amount = match req.amount_zat.or(swap.hop2_amount_in) {
+        Some(a) if a > 0 => a,
+        _ => {
+            return Err(ApiError::BadRequest(
+                "amount_zat is required: the swap has no hop two amount".into(),
+            ))
+        }
+    };
+    if amount > h.config.max_zat {
+        return Err(ApiError::BadRequest(format!(
+            "amount_zat is above the per-swap cap of {} zat",
+            h.config.max_zat
+        )));
+    }
+    let now = now_unix();
+    swap.hop2_paying_unix = Some(now);
+    swap.hop2_deposit_address = Some(to.clone());
+    swap.hop2_txid = None;
+    swap.updated_unix = now;
+    swap.last_error = Some(format!("operator payout of {amount} zat to {to} started"));
+    h.store.update(&swap)?;
+    let paid = match h.wallet.pay(to.clone(), amount).await {
+        Ok(p) => p,
+        Err(e) => {
+            swap.last_error = Some(format!("operator payout: {e}"));
+            swap.note = Some("A payout by the operator did not go through. Contact the operator with your swap id.".into());
+            let _ = h.store.update(&swap);
+            return Err(ApiError::Internal(e));
+        }
+    };
+    swap.hop2_txid = Some(paid.txid.clone());
+    swap.state = SwapState::Done;
+    swap.updated_unix = now_unix();
+    swap.last_error = Some(format!(
+        "operator payout {} zat to {to}, txid {}",
+        amount, paid.txid
+    ));
+    swap.note = Some(format!(
+        "The operator paid the ZEC out by hand. Zcash transaction {}.",
+        paid.txid
+    ));
+    h.store.update(&swap)?;
+    tracing::warn!(id = %swap.id, txid = %paid.txid, amount, "operator payout");
+    Ok(Json(OperatorPaid {
+        id: swap.id,
+        txid: paid.txid,
+        amount_zat: amount,
+        fee_zat: paid.fee,
+        state: SwapState::Done,
+    }))
+}
+
+/// Operator view: wallet balance and swap counts. Bearer token required.
+async fn hosted_report(
+    State(s): State<Shared>,
+    headers: HeaderMap,
+) -> Result<Json<OperatorReport>, ApiError> {
+    let h = hosted_of(&s)?;
+    operator_auth(&s, &headers)?;
     Ok(Json(OperatorReport {
         wallet: h.wallet.report().await.map_err(ApiError::Internal)?,
         swaps: h.store.count_by_state()?,
@@ -544,8 +797,10 @@ pub struct HandoffView {
 /// Park a signed quote so another device can load it by id. Opt-in, in memory.
 async fn handoff_put(
     State(s): State<Shared>,
+    headers: HeaderMap,
     Json(req): Json<HandoffPut>,
 ) -> Result<Json<HandoffCreated>, ApiError> {
+    rate_limit(&s, &headers)?;
     if !req.quote.is_object() {
         return Err(ApiError::BadRequest("quote must be an object".into()));
     }
@@ -629,6 +884,7 @@ mod tests {
             },
             hosted: None,
             operator_token: None,
+            rate_limit_per_min: 0,
         }
     }
 
@@ -640,10 +896,29 @@ mod tests {
             oneclick: OneClick::new(cfg.oneclick_url.clone(), None).unwrap(),
             hosted: None,
             handoff: Handoff::default(),
+            tokens: TokenCache::default(),
+            limit: RateLimit::new(cfg.rate_limit_per_min),
             started_at: std::time::Instant::now(),
             config: cfg,
         });
         router(state)
+    }
+
+    fn quote_body() -> Value {
+        serde_json::json!({
+            "dry": false,
+            "swapType": "EXACT_INPUT",
+            "slippageTolerance": 100,
+            "originAsset": "nep141:eth.omft.near",
+            "depositType": "ORIGIN_CHAIN",
+            "destinationAsset": "nep141:zec.omft.near",
+            "amount": "1000",
+            "refundTo": "0xabc",
+            "refundType": "ORIGIN_CHAIN",
+            "recipient": "t1x",
+            "recipientType": "DESTINATION_CHAIN",
+            "deadline": "2026-10-27T00:00:00Z"
+        })
     }
 
     async fn body_json(resp: axum::response::Response) -> Value {
@@ -702,7 +977,7 @@ mod tests {
         let req = Request::post("/v1/quote")
             .header("content-type", "application/json")
             .header("cf-ipcountry", "kp")
-            .body(Body::from(r#"{"refundTo":"a","recipient":"b"}"#))
+            .body(Body::from(quote_body().to_string()))
             .unwrap();
         let r = app.oneshot(req).await.unwrap();
         assert_eq!(r.status(), StatusCode::FORBIDDEN);
@@ -711,14 +986,101 @@ mod tests {
     #[tokio::test]
     async fn quote_requires_addresses() {
         let app = build_app(test_config());
+        let mut body = quote_body();
+        body["refundTo"] = Value::String(String::new());
         let req = Request::post("/v1/quote")
             .header("content-type", "application/json")
-            .body(Body::from(r#"{"recipient":"b"}"#))
+            .body(Body::from(body.to_string()))
             .unwrap();
         let r = app.oneshot(req).await.unwrap();
         assert_eq!(r.status(), StatusCode::BAD_REQUEST);
         let j = body_json(r).await;
         assert_eq!(j["message"], "refundTo is required");
+    }
+
+    #[tokio::test]
+    async fn quote_takes_only_the_fields_the_page_sends() {
+        let app = build_app(test_config());
+        // a field the page never sends is refused before any upstream call
+        let mut body = quote_body();
+        body["referral"] = Value::String("someone".into());
+        let r = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/quote")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        // appFees is never the caller's to set
+        let mut body = quote_body();
+        body["appFees"] = serde_json::json!([{"recipient": "x.near", "fee": 1}]);
+        let r = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/quote")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        // a well-formed body reaches the route (which is not there in tests)
+        let r = app
+            .oneshot(
+                Request::post("/v1/quote")
+                    .header("content-type", "application/json")
+                    .body(Body::from(quote_body().to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_counts_per_client_address() {
+        let mut cfg = test_config();
+        cfg.rate_limit_per_min = 2;
+        let app = build_app(cfg);
+        let screen = |ip: &str| {
+            Request::post("/v1/screen")
+                .header("content-type", "application/json")
+                .header("cf-connecting-ip", ip)
+                .body(Body::from(r#"{"address":"0xabc","chain":"eth"}"#))
+                .unwrap()
+        };
+        for _ in 0..2 {
+            let r = app.clone().oneshot(screen("1.2.3.4")).await.unwrap();
+            assert_eq!(r.status(), StatusCode::OK);
+        }
+        let r = app.clone().oneshot(screen("1.2.3.4")).await.unwrap();
+        assert_eq!(r.status(), StatusCode::TOO_MANY_REQUESTS);
+        let j = body_json(r).await;
+        assert_eq!(j["error"], "too_many_requests");
+        let r = app.oneshot(screen("5.6.7.8")).await.unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn operator_routes_need_the_token_and_the_wallet() {
+        let app = build_app(test_config());
+        let r = app
+            .oneshot(
+                Request::get("/v1/operator/swaps/00000000000000000000000000000000")
+                    .header("authorization", "Bearer nope")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        let j = body_json(r).await;
+        assert_eq!(j["error"], "hosted_off");
     }
 
     #[tokio::test]
