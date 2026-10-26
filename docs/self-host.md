@@ -1,20 +1,10 @@
 # Self-host guide
 
-Unpair has three pieces. None of them holds a key on a server. Each can be
-hosted or built on its own.
+Unpair has three pieces: the page, the API, and a gRPC-web proxy for the
+one-time wallet. Only the API's hosted path holds a key on a server, and only
+when you turn it on. Each piece can be hosted or built on its own.
 
-## 1. The app
-
-The desktop app is the part that holds your Zcash key, shields the payout and
-runs the second hop. It is built on `packages/zcash` and ships as signed releases
-with published hashes, so you can check a download against the source. Building
-it yourself from the repo is the same thing without the signature.
-
-Until a release ships, run it from source as its README describes, or use the
-web page below with any Zcash wallet that shields on receipt, such as Zodl, Zingo
-or Zkool.
-
-## 2. The web page
+## 1. The web page
 
 Static files. Build and upload them anywhere.
 
@@ -25,8 +15,9 @@ pnpm --filter @unpair/web build
 ```
 
 Upload `apps/web/dist`. Set `VITE_FEE_RECIPIENT` and `VITE_FEE_BPS` to route the
-fee to yourself, or `VITE_FEE_BPS=0` for none. The page talks to 1Click from the
-browser. It does not need the API.
+fee to yourself, or `VITE_FEE_BPS=0` for none. Without an API the page talks to
+1Click from the browser, with no screening and no server path. The one-time
+wallet also needs the proxy in section 3.
 
 `.github/workflows/web.yml` builds the page and publishes it to GitHub Pages on
 every push to `main`. Turn on Pages for the repository with "GitHub Actions" as
@@ -34,7 +25,7 @@ the source, set the repository variables listed at the top of that file, and
 point your domain's DNS at GitHub Pages. Set `BASE_PATH=/name/` when the page
 is served under a sub-path instead of a domain of its own.
 
-## 3. The API
+## 2. The API
 
 Needed for screening and signed quotes. Without a seed file it holds no key that
 can receive funds; with one it runs the hosted swap path described below.
@@ -79,7 +70,7 @@ later. That makes you a custodian between the hops. Before turning it on:
   EU rule that bars crypto-asset service providers from privacy-coin accounts
   from 10 July 2027, before the URL is public.
 
-## 4. The gRPC-web proxy, for the in-browser wallet
+## 3. The gRPC-web proxy, for the one-time wallet
 
 The one-time wallet runs a Zcash wallet inside the page. Browsers
 cannot speak gRPC, so the page reaches lightwalletd through a gRPC-web proxy.

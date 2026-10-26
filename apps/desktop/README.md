@@ -1,5 +1,9 @@
 # Unpair app
 
+Paused. The product is the web page; this app is not built by CI, not released
+and not offered on the page. The code stays as a native client on the same
+crate, for whoever picks it up.
+
 The desktop app. It holds the Zcash key for your swaps on your device and nowhere
 else, built on `packages/zcash` with Tauri.
 

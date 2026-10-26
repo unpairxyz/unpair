@@ -10,8 +10,8 @@ and Syria. The list is public in the server configuration and in `/v1/config`.
 
 ## Who you pay and who gets refunds
 
-The refund address on the source chain and the destination Zcash address are
-screened. A match on the configured list or a risk flag from the screening
+The refund address on the source chain and the destination address, on Zcash
+or on the chain you chose, are screened. A match on the configured list or a risk flag from the screening
 provider refuses the quote. The message says the address cannot be used. It does
 not say why in detail, because that would help the wrong people.
 
@@ -22,8 +22,8 @@ not say why in detail, because that would help the wrong people.
 - No IP addresses are logged with verdicts. The log line holds the check that
   refused and the chain, nothing else.
 - Screening happens before execution, never after. With the one-time wallet or your
-  own wallet we cannot freeze funds, because we hold none. On the server path a
-  flagged address is refused before any deposit is taken.
+  own wallet we cannot freeze funds, because in those modes we hold none. On
+  the server path a flagged address is refused before any deposit is taken.
 
 ## What a provider sees
 

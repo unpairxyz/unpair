@@ -1,7 +1,9 @@
 # Unpair web app
 
-A static page. Quotes go from the browser straight to the route, so the server
-that hosts this page never sees your deposit and your Zcash address together.
+A static page. With the API configured, addresses are screened one at a time
+and quotes come back signed; the host of the page itself never sees a key, and
+on the own-wallet and one-time-wallet paths no server sees your deposit and
+your destination together.
 
 ## Icons
 
@@ -12,7 +14,7 @@ page load. Fill `public/icons/` before a build:
 node apps/web/scripts/fetch-icons.mjs
 ```
 
-The folder is not committed. The Pages workflow runs the script before it builds.
+The folder is not committed. The Web page and Release workflows run the script before they build.
 Without it, every token shows a monogram.
 
 ## Run
@@ -75,19 +77,19 @@ proxy. The Pages workflow builds the wallet on every deploy.
 ## What the page does
 
 1. Pick Fast or Quiet. Quiet rounds the amount to a 1, 2, 5 grid.
-2. Pick the source chain and asset, the amount, a refund address on the source
-   chain, and a transparent Zcash address.
-3. Read the fee sentence, get a quote, read the exact fee the route applied.
-4. Send the deposit to the address shown. The page polls the route until the
-   swap lands, is refunded, or fails.
+2. Pick the source chain and asset, the amount, what you want to get and where,
+   and a refund address on the source chain.
+3. Pick who holds the ZEC in between. The form shows the fee and the estimate
+   from the route before anything is created.
+4. Send the deposit to the address shown. The page follows the swap until it
+   lands, is refunded, or fails.
 
-The Zcash address can be a shielded-only unified address, which the route pays
-straight into Ironwood, or a transparent address, which your wallet shields on
-receipt. A unified address that also carries a transparent receiver is paid to
-that receiver. Sapling-only addresses are refused with a reason. The page decodes
-unified addresses itself to tell these apart. This page is the bring-your-own-wallet
-front end. The Unpair app holds the key itself and needs no other wallet; the
-page points to it as the other choice.
+With your own wallet the destination is a Zcash address: a shielded-only
+unified address, which the route pays straight into Ironwood, or a transparent
+address, which your wallet shields on receipt. A unified address that also
+carries a transparent receiver is paid to that receiver. Sapling-only addresses
+are refused with a reason. The page decodes unified addresses itself to tell
+these apart.
 
 ## Choices on the page
 

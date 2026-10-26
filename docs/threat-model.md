@@ -31,14 +31,8 @@ later spends your ZEC has to live somewhere. You choose where, per swap.
   a payout may spend notes that arrived for other swaps in flight, and change
   stays in that account. The per-swap and in-flight caps are in the server's
   configuration and in `/v1/config`.
-- **The Unpair app.** Creates the seed on your device and keeps it in the
-  operating system keychain. Same flow as the server path, with the key on your
-  machine. Not the focus right now.
-
-A swap that ends in ZEC makes the app your Zcash wallet, so the app requires a
-seed backup first. A pass-through swap, from one asset through shielded ZEC to
-another, can run on a one-time transit seed. The app offers a backup and warns
-that funds in transit need it.
+The page offers the one-time wallet first when its proxy is configured, and
+your own wallet otherwise. The server is never the default.
 
 ## Observers
 
@@ -50,7 +44,7 @@ that funds in transit need it.
 | Unpair, own-wallet path | Nothing that links the two ends. Quotes are requested from your device. The server sees the addresses it screens, one request at a time, and never a deposit and a destination together. | Nothing. | We are the party that would receive a subpoena. On this path there is nothing to hand over. |
 | Unpair, browser path | Nothing that links the two ends. Each hop is quoted from your device like the own-wallet path. | Nothing. | The gRPC-web proxy, Unpair's or a self-hoster's, sees the tab's IP and which blocks it fetched, not what it found in them. Use Tor Browser if that matters. |
 | Unpair, server path | Both ends: the deposit, the receiving address and the timing, for seven days after the swap finishes. | Same, plus the release delay it chose. | This is the price of closing the tab. The server is the one party able to link your swap. |
-| Your network provider | Sees that you reached a route operator or a lightwalletd server. | Same. | The app uses Tor for lightwalletd and broadcast by default. Nym is optional. |
+| Your network provider | Sees that you reached the page, the API, or the gRPC-web proxy. | Same. | See "Your IP address" below. |
 
 ## What you still trust
 
@@ -62,9 +56,10 @@ that funds in transit need it.
   its logs, and its solvency. The server keeps the swap record for seven days
   after it finishes, then deletes it. While it exists, that record ties your
   deposit to your receiving address, and a subpoena could reach it.
-- Our code. We shrink this with signed releases and published hashes, and with
-  quotes you can check against 1Click directly. Reproducible builds are planned;
-  we will claim them only once an independent rebuild matches.
+- Our code. Every release is a signed tag with published hashes, and the page
+  unpair.xyz serves is a release's files, so what you load can be hashed against
+  the release. Quotes can be checked against 1Click directly. Reproducible
+  builds are not claimed until an independent rebuild matches.
 
 Nothing else. No own node, no own chain, no token.
 
@@ -106,9 +101,9 @@ To hide it from all of them, use the page in Tor Browser or behind NymVPN:
 - A plain VPN moves the trust to the VPN provider.
 
 The page itself does not route through Tor or Nym: a browser page cannot. A
-future client could carry the lightwalletd and route calls over the Nym
-mixnet from inside the app; the Nym SDK offers a browser build, but it is
-experimental and not used here.
+future native client could carry the lightwalletd and route calls over the
+Nym mixnet itself; the Nym SDK offers a browser build, but it is experimental
+and not used here.
 
 ## Routes we have not added
 
@@ -127,7 +122,7 @@ starts from a fresh shielded note at a time the server picks. That is a stronger
 break of the on-chain link than a payout into your own wallet. The price is
 that you trust us with your funds for that time, and that we can link the two
 ends. It also makes us a custodian in the eyes of regulators in some places.
-The page says this next to the choice. Your own wallet is the default.
+The page says this next to the choice. The server is never the default.
 
 In quiet mode the server does not send your amount on in one piece. It cuts it
 into standard sizes and sends each at its own random time, so no payout
