@@ -419,3 +419,14 @@ dialog .qr svg{width:240px;height:240px;max-width:100%}
 .chips{display:inline-flex;gap:4px;margin-right:6px;vertical-align:1px}
 .kchip{display:inline-block;padding:0 6px;border:2px solid var(--ink);border-radius:10px;font:700 11px/1.5 var(--mono);color:var(--ink);background:var(--paper);white-space:nowrap}
 .half .chips{display:flex;margin:4px 0 0}
+
+/* facts of a swap: label and value rows in one frame, like the status panels */
+.facts{margin:12px 0 0;border:3px solid var(--ink);background:var(--paper)}
+.facts div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 10px;border-top:2px dashed var(--ink)}
+.facts div:first-child{border-top:0}
+.facts dt{flex:none;font:700 12px var(--ui);text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.facts dd{margin:0;min-width:0;text-align:right;font:700 14px var(--ui);overflow-wrap:anywhere}
+.facts dd.m{font:700 13.5px var(--mono)}
+.facts a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.fine.left{text-align:left;margin-top:4px}
+.k b{margin-right:24px}
