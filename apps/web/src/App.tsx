@@ -165,9 +165,9 @@ const pct = (f: number): string => `${(f * 100).toLocaleString("en-US", { maximu
 // fee and time for each keeper, shown as two chips: one-time wallet pays the Unpair fee on both hops,
 // the server on hop one only, your own wallet now and again if you send out later
 const KEEPER_CHIPS: Record<Custody, [string, string]> = {
-  browser: [`about ${pct(feeFraction * 2)}`, "hours, tab open"],
-  server: [feePercent, "minutes to 1 h"],
-  own: [`${feePercent} now`, "minutes"],
+  browser: [`about ${pct(feeFraction * 2)}`, "about 40 min, tab open"],
+  server: [feePercent, "about 30 min"],
+  own: [`${feePercent} now`, "about 10 min"],
 };
 
 const MODES: { value: Mode; title: string; hint: string }[] = [
@@ -223,6 +223,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const hops = custody === "browser" ? 2 : 1;
   const out = a && b && b.price > 0 ? (sendNum * a.price * (1 - feeFraction) ** hops) / b.price : 0;
   const minOut = out * (1 - slippage / 10_000);
+  // the same token in and out is fine through the pool: two hops, and only the link is gone
   const same = sameToken(a, b);
   const pickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
   // a new chain makes the old address wrong, so it is cleared
@@ -245,7 +246,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   if (!a || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
   else if (serverOff) label = "SERVER MODE IS OFF HERE";
   else if (browserOff) label = "ONE-TIME WALLET IS OFF HERE";
-  else if (same || (b.blockchain === "zec" && custody !== "own")) label = "PICK A DIFFERENT TOKEN";
+  else if ((same && custody === "own") || (b.blockchain === "zec" && custody !== "own")) label = "PICK A DIFFERENT TOKEN";
   else if (!plan) label = "ENTER AN AMOUNT";
   else if (!destCheck?.ok) label = custody === "own" ? "ADD YOUR ZCASH ADDRESS" : `ADD YOUR ${chainLabel(b.blockchain).toUpperCase()} ADDRESS`;
   else if (!refundCheck?.ok) label = "ADD A REFUND ADDRESS";
@@ -255,7 +256,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   if (error) hint = error;
   else if (serverOff) hint = hosted.known ? "This server does not offer the hosted path. Pick your own wallet." : "Checking whether this server offers the hosted path.";
   else if (browserOff) hint = "This page was built without a Zcash wallet server, so the one-time wallet is off. Pick your own Zcash wallet.";
-  else if (same) hint = "Same token on the same chain. Pick something else to get.";
+  else if (same && custody === "own") hint = "Same token on the same chain. Pick something else to get.";
   else if (planError) hint = planError;
   else if (destCheck && !destCheck.ok) hint = destCheck.text;
   else if (refundCheck && !refundCheck.ok) hint = refundCheck.text;
@@ -425,8 +426,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         {a && <AddressRow id="refund" label="Refund" value={refund} onChange={setRefund} placeholder={`Your ${chainLabel(a.blockchain)} address`} invalid={refundCheck ? !refundCheck.ok : false} />}
       </AddressRows>
       <Hint>{hint}</Hint>
-      {a && b && plan && !same && (
-        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={custody === "browser" ? "hours" : mode === "quiet" ? "random wait" : "~5 min"} time={custody === "browser" ? "hours: the tab proves hop two" : mode === "quiet" ? "about 5 min in, then a random wait up to 12 h" : "about 5 min"} />
+      {a && b && plan && !(same && custody === "own") && (
+        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
       )}
       {custody === "server" && hostedInfo && (
         <p className="fine">Each hosted swap carries at most {formatUnits(BigInt(hostedInfo.max_zat), ZEC_DECIMALS)} ZEC. {hostedInfo.open} of {hostedInfo.max_open} slots in use.</p>

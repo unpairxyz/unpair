@@ -305,12 +305,9 @@ async fn hosted_create(
     if !geo.allowed {
         return Err(ApiError::Forbidden(geo.reason.unwrap_or_default()));
     }
+    // The same asset in and out is fine: hop one and hop two are different
+    // route legs with ZEC between them, and only the link is gone.
     check_destination(&req.destination_asset)?;
-    if req.origin_asset == req.destination_asset {
-        return Err(ApiError::BadRequest(
-            "Pick a different asset to receive.".into(),
-        ));
-    }
     if req.amount.is_empty() || !req.amount.bytes().all(|b| b.is_ascii_digit()) {
         return Err(ApiError::BadRequest(
             "amount must be a whole number of base units".into(),
