@@ -13,13 +13,17 @@ const CHAIN_COIN = {
   gnosis: "gnosis", bera: "berachain-bera", scroll: "scroll", monad: "monad", xlayer: "okb", plasma: "plasma",
   hypercore: "hyperliquid", sol: "solana", btc: "bitcoin", ltc: "litecoin", doge: "dogecoin", bch: "bitcoin-cash",
   dash: "dash", zec: "zcash", tron: "tron", ton: "the-open-network", stellar: "stellar", xrp: "ripple", cardano: "cardano",
-  near: "near", sui: "sui", aptos: "aptos", movement: "movement", starknet: "starknet", aleo: "aleo",
+  near: "near", sui: "sui", aptos: "aptos", movement: "movement", starknet: "starknet", aleo: "aleo", qtc: "quantus",
 };
 // Chains with no coin of their own -> CoinGecko asset platform id, whose logo is used instead.
+// Route token ids that are not CoinGecko ids -> the CoinGecko id whose image to use.
+const TOKEN_ALIAS = { "custom:qtc": "quantus" };
 const CHAIN_PLATFORM = { base: "base", abs: "abstract", adi: "adi-chain", fogo: "fogo", hood: "robinhood" };
 
 const tokens = await (await fetch(`${ONECLICK}/v0/tokens`)).json();
-const ids = [...new Set([...tokens.map((t) => t.coingeckoId).filter(Boolean), ...Object.values(CHAIN_COIN)])];
+const ids = [...new Set([...tokens.map((t) => TOKEN_ALIAS[t.coingeckoId] ?? t.coingeckoId).filter(Boolean), ...Object.values(CHAIN_COIN), ...Object.values(TOKEN_ALIAS)])];
+// File names match tokens.ts iconFile: anything outside [a-z0-9-] becomes a dash.
+const fileOf = (id) => id.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 const images = new Map();
 for (let i = 0; i < ids.length; i += 200) {
   const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&per_page=250&ids=${ids.slice(i, i + 200).join(",")}`;
@@ -36,7 +40,8 @@ const save = async (name, src) => {
   return true;
 };
 let n = 0;
-for (const [id, src] of images) if (await save(`${id}.png`, src)) n++;
+for (const [id, src] of images) if (await save(`${fileOf(id)}.png`, src)) n++;
+for (const [alias, id] of Object.entries(TOKEN_ALIAS)) if (images.has(id) && (await save(`${fileOf(alias)}.png`, images.get(id)))) n++;
 for (const [chain, id] of Object.entries(CHAIN_COIN)) if (images.has(id) && (await save(`chain-${chain}.png`, images.get(id)))) n++;
 const platforms = await (await fetch("https://api.coingecko.com/api/v3/asset_platforms")).json();
 for (const [chain, id] of Object.entries(CHAIN_PLATFORM)) {
