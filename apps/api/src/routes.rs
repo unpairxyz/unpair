@@ -95,6 +95,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/tokens", get(tokens))
         .route("/v1/screen", post(screen))
         .route("/v1/quote", post(quote))
+        .route("/v1/estimate", post(estimate))
         .route("/v1/status/{deposit_address}", get(status))
         .route("/v1/hosted/swaps", post(hosted_create))
         .route("/v1/hosted/swaps/{id}", get(hosted_get))
@@ -430,26 +431,181 @@ fn hosted_of(s: &AppState) -> Result<&Hosted, ApiError> {
     s.hosted.as_ref().ok_or(ApiError::HostedOff)
 }
 
+/// Who keeps the ZEC between the hops, for the estimate. The page's one-time
+/// wallet quotes hop two itself with the routing fee, like hop one; the
+/// server's hop two carries none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Custody {
+    #[default]
+    Server,
+    Browser,
+}
+
+/// What the form asks before the deposit address: the same two dry quotes
+/// the deposit screen shows, so both say the same number.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EstimateBody {
+    pub mode: Mode,
+    #[serde(rename = "originAsset")]
+    pub origin_asset: String,
+    /// Amount in the origin asset's base units.
+    pub amount: String,
+    #[serde(rename = "destinationAsset")]
+    pub destination_asset: String,
+    pub recipient: String,
+    #[serde(rename = "refundTo")]
+    pub refund_to: String,
+    #[serde(rename = "slippageTolerance")]
+    pub slippage_bps: Option<u32>,
+    #[serde(default)]
+    pub custody: Custody,
+}
+
+#[derive(Serialize)]
+pub struct Estimate {
+    /// ZEC hop one lands, as the route formats it.
+    pub zec_out: String,
+    /// What hop two delivers; the ZEC itself when ZEC is the destination.
+    /// None when the route gave no hop-two quote.
+    pub estimate_out: Option<String>,
+}
+
+/// Dry quotes of both hops, nothing created and nothing screened: a dry
+/// quote makes no deposit address. ZEC as the destination is one hop. Any
+/// other destination needs the hosted wallet, whose first landing stands in
+/// as the ZEC side of each dry quote.
+async fn estimate(
+    State(s): State<Shared>,
+    headers: HeaderMap,
+    Json(req): Json<EstimateBody>,
+) -> Result<Json<Estimate>, ApiError> {
+    rate_limit(&s, &headers)?;
+    let geo = geofence(&s.config.geofence, &headers);
+    if !geo.allowed {
+        return Err(ApiError::Forbidden(geo.reason.unwrap_or_default()));
+    }
+    if req.amount.is_empty()
+        || req.amount.len() > 40
+        || !req.amount.bytes().all(|b| b.is_ascii_digit())
+    {
+        return Err(ApiError::BadRequest(
+            "amount must be a whole number of base units".into(),
+        ));
+    }
+    let slippage = req.slippage_bps.unwrap_or(100);
+    if !(1..=500).contains(&slippage) {
+        return Err(ApiError::BadRequest(
+            "slippage must be from 1 to 500 bps".into(),
+        ));
+    }
+    let refund_to = req.refund_to.trim().to_string();
+    let recipient = req.recipient.trim().to_string();
+    if refund_to.is_empty()
+        || recipient.is_empty()
+        || refund_to.len() > 200
+        || recipient.len() > 200
+    {
+        return Err(ApiError::BadRequest(
+            "refundTo and recipient are required".into(),
+        ));
+    }
+    let to_zec = req.destination_asset == hosted::ZEC_ASSET;
+    if !to_zec {
+        check_destination(&req.destination_asset)?;
+    }
+    let (zec_recipient, zec_refund) = if to_zec {
+        (recipient.clone(), String::new())
+    } else {
+        let l = hosted_of(&s)?
+            .wallet
+            .landing_at(0)
+            .await
+            .map_err(ApiError::Internal)?;
+        (l.shielded, l.transparent)
+    };
+    let now = now_unix();
+    let body = serde_json::json!({
+        "dry": true,
+        "swapType": "EXACT_INPUT",
+        "slippageTolerance": slippage,
+        "originAsset": req.origin_asset,
+        "depositType": "ORIGIN_CHAIN",
+        "destinationAsset": hosted::ZEC_ASSET,
+        "amount": req.amount,
+        "refundTo": refund_to,
+        "refundType": "ORIGIN_CHAIN",
+        "recipient": zec_recipient,
+        "recipientType": "DESTINATION_CHAIN",
+        "deadline": hosted::rfc3339(now.saturating_add(15 * 60)),
+    });
+    let fee = || {
+        (s.config.fee_bps > 0).then(|| {
+            vec![AppFee {
+                recipient: s.config.fee_recipient.clone(),
+                fee: s.config.fee_bps,
+            }]
+        })
+    };
+    let quote = s.oneclick.quote(body, fee()).await?;
+    let q = quote.get("quote").cloned().unwrap_or(Value::Null);
+    let str_of = |k: &str| q.get(k).and_then(Value::as_str).map(str::to_string);
+    let amount_out: u64 = str_of("amountOut")
+        .and_then(|a| a.parse().ok())
+        .ok_or_else(|| ApiError::Upstream("quote without amountOut".into()))?;
+    let zec_out = str_of("amountOutFormatted").unwrap_or_else(|| zec(amount_out));
+    if to_zec {
+        return Ok(Json(Estimate {
+            estimate_out: Some(zec_out.clone()),
+            zec_out,
+        }));
+    }
+    let h = hosted_of(&s)?;
+    let (split, max_zat, fees) = match req.custody {
+        Custody::Server => (
+            req.mode == Mode::Quiet && h.config.split,
+            h.config.max_zat,
+            None,
+        ),
+        Custody::Browser => (false, u64::MAX, fee()),
+    };
+    let estimate_out = hop2_estimate(
+        &s,
+        split,
+        max_zat,
+        &req.destination_asset,
+        amount_out,
+        &zec_refund,
+        &recipient,
+        slippage,
+        now,
+        fees,
+    )
+    .await;
+    Ok(Json(Estimate {
+        zec_out,
+        estimate_out,
+    }))
+}
+
 /// Start a hosted swap: screen, take a fresh landing, quote hop one to it.
 /// A dry hop-two quote at creation, so the page can say what the user gets
 /// before the deposit. Hop two carries no routing fee. Never fails the create.
 #[allow(clippy::too_many_arguments)]
 async fn hop2_estimate(
     s: &AppState,
-    h: &Hosted,
-    mode: Mode,
+    split: bool,
+    max_zat: u64,
     destination_asset: &str,
     amount_out: u64,
     refund_to: &str,
     recipient: &str,
     slippage: u32,
     now: u64,
+    fees: Option<Vec<AppFee>>,
 ) -> Option<String> {
-    let basis = hosted::hop2_estimate_basis(
-        amount_out,
-        mode == Mode::Quiet && h.config.split,
-        h.config.max_zat,
-    );
+    let basis = hosted::hop2_estimate_basis(amount_out, split, max_zat);
     if basis == 0 {
         return None;
     }
@@ -467,7 +623,7 @@ async fn hop2_estimate(
         "recipientType": "DESTINATION_CHAIN",
         "deadline": hosted::rfc3339(now.saturating_add(15 * 60)),
     });
-    match s.oneclick.quote(body, None::<Vec<AppFee>>).await {
+    match s.oneclick.quote(body, fees).await {
         Ok(q) => q
             .get("quote")
             .and_then(|q| q.get("amountOutFormatted"))
@@ -601,14 +757,15 @@ async fn hosted_create(
         .sign(&s.config.fee_recipient, s.config.fee_bps, &quote);
     let estimate_out = hop2_estimate(
         &s,
-        h,
-        req.mode,
+        req.mode == Mode::Quiet && h.config.split,
+        h.config.max_zat,
         &req.destination_asset,
         amount_out,
         &landing.transparent,
         &recipient,
         slippage,
         now,
+        None,
     )
     .await;
 
@@ -1056,6 +1213,46 @@ mod tests {
             .unwrap();
         let r = app.oneshot(req).await.unwrap();
         assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn estimate_checks_its_fields_and_needs_the_hosted_wallet() {
+        let app = build_app(test_config());
+        let body = |amount: &str, dest: &str| {
+            serde_json::json!({
+                "mode": "fast",
+                "originAsset": "nep141:eth.omft.near",
+                "amount": amount,
+                "destinationAsset": dest,
+                "recipient": "0xabc",
+                "refundTo": "0xdef",
+                "slippageTolerance": 100
+            })
+        };
+        let post = |j: Value| {
+            Request::post("/v1/estimate")
+                .header("content-type", "application/json")
+                .body(Body::from(j.to_string()))
+                .unwrap()
+        };
+        let r = app
+            .clone()
+            .oneshot(post(body("1.5", "nep141:usdc.near")))
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        // a destination other than ZEC needs the hosted wallet, off in this config
+        let r = app
+            .clone()
+            .oneshot(post(body("1000", "nep141:usdc.near")))
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+        // a field the page does not send is refused
+        let mut j = body("1000", "nep141:usdc.near");
+        j["appFees"] = serde_json::json!([]);
+        let r = app.oneshot(post(j)).await.unwrap();
+        assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[tokio::test]
