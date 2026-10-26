@@ -54,6 +54,8 @@ pub struct HostedConfig {
     pub max_zat: u64,
     /// Most swaps in flight at once.
     pub max_open: u32,
+    /// Quiet mode cuts hop two into standard sizes at separate times.
+    pub split: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -247,6 +249,9 @@ impl Config {
                     .map_err(|e| {
                         ConfigError::Invalid("UNPAIR_HOSTED_MAX_OPEN".into(), format!("{e}"))
                     })?,
+                split: var("UNPAIR_HOSTED_SPLIT")
+                    .map(|v| v != "false" && v != "0")
+                    .unwrap_or(true),
             }),
         };
         let operator_token = var("UNPAIR_OPERATOR_TOKEN");
