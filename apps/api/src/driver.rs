@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 
 use crate::error::ApiError;
 use crate::hosted::{
-    parse_rfc3339, release_delay_secs, status_facts, Mode, State, Swap,
-    DEPOSIT_WINDOW_SECS, HOP2_FEE_RESERVE_ZAT, MAX_ATTEMPTS, MIN_ZAT, ZEC_ASSET,
+    parse_rfc3339, release_delay_secs, status_facts, Mode, State, Swap, DEPOSIT_WINDOW_SECS,
+    HOP2_FEE_RESERVE_ZAT, MAX_ATTEMPTS, MIN_ZAT, ZEC_ASSET,
 };
 use crate::oneclick::AppFee;
 use crate::routes::AppState;
