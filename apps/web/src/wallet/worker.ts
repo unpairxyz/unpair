@@ -26,7 +26,10 @@ function loadModule(): Promise<WasmModule> {
       })
       .catch((e: unknown) => {
         loading = null;
-        throw new Error(`the browser wallet is not built on this page (${e instanceof Error ? e.message : String(e)})`);
+        const msg = e instanceof Error ? e.message : String(e);
+        // a module that failed to download is a connection problem, not a page built without the wallet
+        if (/network|abort|fetch|load/i.test(msg)) throw new Error("The wallet module did not finish loading. Check the connection and try again.");
+        throw new Error(`the browser wallet is not built on this page (${msg})`);
       });
   }
   return loading;

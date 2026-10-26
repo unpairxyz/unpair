@@ -147,6 +147,10 @@ pub struct Swap {
     pub hop2_amount_in: Option<u64>,
     pub hop2_deposit_address: Option<String>,
     pub hop2_quote: Option<Value>,
+    /// Set just before a hop-two payout is handed to the wallet. A swap with
+    /// this set and no txid had a payout whose result is unknown; it is never
+    /// paid again by the driver.
+    pub hop2_paying_unix: Option<u64>,
     pub hop2_txid: Option<String>,
     pub delivered_amount: Option<String>,
     pub delivered_tx: Option<String>,
@@ -227,6 +231,22 @@ pub fn release_delay_secs(mode: Mode) -> u64 {
     }
 }
 
+/// Round down to the largest value of the form m * 10^k with m in 1, 2, 5:
+/// the coarse grid the SDK uses for quiet mode. A payout on a shared grid
+/// does not match its deposit to the unit. The remainder stays in the wallet.
+pub fn round_down_coarse(zat: u64) -> u64 {
+    if zat == 0 {
+        return 0;
+    }
+    let digits = zat.ilog10();
+    let decade = 10u64.pow(digits);
+    [5, 2, 1]
+        .into_iter()
+        .map(|m| m * decade)
+        .find(|&c| c <= zat)
+        .unwrap_or(decade)
+}
+
 /// RFC 3339 UTC timestamp for a unix time, for 1Click deadlines.
 pub fn rfc3339(unix: u64) -> String {
     let days = (unix / 86_400) as i64;
@@ -270,12 +290,17 @@ pub fn parse_rfc3339(s: &str) -> Option<u64> {
     let yoe = y.rem_euclid(400);
     let mp = if m > 2 { m - 3 } else { m + 9 };
     let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    if days < 0 {
+    if !(1..=12).contains(&m) || !(1..=31).contains(&day) || hh > 23 || mm > 59 || ss > 60 {
         return None;
     }
-    Some(days as u64 * 86_400 + hh * 3600 + mm * 60 + ss)
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era
+        .checked_mul(146_097)?
+        .checked_add(doe)?
+        .checked_sub(719_468)?;
+    let days = u64::try_from(days).ok()?;
+    days.checked_mul(86_400)?
+        .checked_add(hh * 3600 + mm * 60 + ss)
 }
 
 /// The swap store. SQLite, one table, behind a mutex: every call is short.
@@ -313,12 +338,20 @@ CREATE TABLE IF NOT EXISTS swaps (
     delivered_tx TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     note TEXT,
-    last_error TEXT
+    last_error TEXT,
+    hop2_paying_unix INTEGER
 );
 CREATE INDEX IF NOT EXISTS swaps_state ON swaps(state);
+CREATE TABLE IF NOT EXISTS free_landings (
+    landing_index INTEGER PRIMARY KEY
+);
 ";
 
-const COLUMNS: &str = "id, created_unix, updated_unix, mode, state, landing_index, landing_shielded, landing_transparent, origin_asset, destination_asset, destination_address, refund_to, slippage_bps, hop1_deposit_address, hop1_deposit_memo, hop1_amount_in, hop1_deadline_unix, hop1_quote, zec_received, release_at_unix, hop2_amount_in, hop2_deposit_address, hop2_quote, hop2_txid, delivered_amount, delivered_tx, attempts, note, last_error";
+/// Columns added after the first release. Each is added when missing, so an
+/// older database is brought up to date on open and a newer one is left alone.
+const ADDED_COLUMNS: &[(&str, &str)] = &[("hop2_paying_unix", "INTEGER")];
+
+const COLUMNS: &str = "id, created_unix, updated_unix, mode, state, landing_index, landing_shielded, landing_transparent, origin_asset, destination_asset, destination_address, refund_to, slippage_bps, hop1_deposit_address, hop1_deposit_memo, hop1_amount_in, hop1_deadline_unix, hop1_quote, zec_received, release_at_unix, hop2_amount_in, hop2_deposit_address, hop2_quote, hop2_txid, delivered_amount, delivered_tx, attempts, note, last_error, hop2_paying_unix";
 
 fn internal(e: impl std::fmt::Display) -> ApiError {
     ApiError::Internal(format!("swap store: {e}"))
@@ -330,6 +363,7 @@ impl Store {
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")
             .map_err(internal)?;
         conn.execute_batch(SCHEMA).map_err(internal)?;
+        migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -339,6 +373,7 @@ impl Store {
     pub fn open_in_memory() -> Result<Self, ApiError> {
         let conn = Connection::open_in_memory().map_err(internal)?;
         conn.execute_batch(SCHEMA).map_err(internal)?;
+        migrate(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -348,10 +383,14 @@ impl Store {
         self.conn.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    #[cfg(test)]
     pub fn insert(&self, s: &Swap) -> Result<(), ApiError> {
-        let conn = self.lock();
+        Self::insert_row(&self.lock(), s)
+    }
+
+    fn insert_row(conn: &Connection, s: &Swap) -> Result<(), ApiError> {
         conn.execute(
-            &format!("INSERT INTO swaps ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29)"),
+            &format!("INSERT INTO swaps ({COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30)"),
             params![
                 s.id,
                 s.created_unix as i64,
@@ -382,16 +421,76 @@ impl Store {
                 s.attempts,
                 s.note,
                 s.last_error,
+                s.hop2_paying_unix.map(|v| v as i64),
             ],
         )
         .map_err(internal)?;
         Ok(())
     }
 
+    /// Insert only while fewer than `max_open` swaps are in flight. The count
+    /// and the insert run in one write transaction, so two creates at once
+    /// cannot both pass the check. Returns whether the swap was stored.
+    pub fn insert_if_below(&self, s: &Swap, max_open: u32) -> Result<bool, ApiError> {
+        let mut conn = self.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let open: u32 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM swaps WHERE state IN ('waiting_for_deposit','routing_in','in_pool','routing_out')",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(internal)?;
+        if open >= max_open {
+            return Ok(false);
+        }
+        Self::insert_row(&tx, s)?;
+        tx.commit().map_err(internal)?;
+        Ok(true)
+    }
+
+    /// A landing that was handed out and never paid may serve the next swap.
+    pub fn release_landing(&self, index: u32) -> Result<(), ApiError> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT OR IGNORE INTO free_landings (landing_index) VALUES (?1)",
+            params![index],
+        )
+        .map_err(internal)?;
+        Ok(())
+    }
+
+    /// Take a released landing, lowest index first, if there is one.
+    pub fn take_free_landing(&self) -> Result<Option<u32>, ApiError> {
+        let mut conn = self.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(internal)?;
+        let index: Option<u32> = tx
+            .query_row(
+                "SELECT landing_index FROM free_landings ORDER BY landing_index LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(internal)?;
+        if let Some(i) = index {
+            tx.execute(
+                "DELETE FROM free_landings WHERE landing_index=?1",
+                params![i],
+            )
+            .map_err(internal)?;
+        }
+        tx.commit().map_err(internal)?;
+        Ok(index)
+    }
+
     pub fn update(&self, s: &Swap) -> Result<(), ApiError> {
         let conn = self.lock();
         let n = conn.execute(
-            "UPDATE swaps SET updated_unix=?2, state=?3, zec_received=?4, release_at_unix=?5, hop2_amount_in=?6, hop2_deposit_address=?7, hop2_quote=?8, hop2_txid=?9, delivered_amount=?10, delivered_tx=?11, attempts=?12, note=?13, last_error=?14 WHERE id=?1",
+            "UPDATE swaps SET updated_unix=?2, state=?3, zec_received=?4, release_at_unix=?5, hop2_amount_in=?6, hop2_deposit_address=?7, hop2_quote=?8, hop2_txid=?9, delivered_amount=?10, delivered_tx=?11, attempts=?12, note=?13, last_error=?14, hop2_paying_unix=?15 WHERE id=?1",
             params![
                 s.id,
                 s.updated_unix as i64,
@@ -407,6 +506,7 @@ impl Store {
                 s.attempts,
                 s.note,
                 s.last_error,
+                s.hop2_paying_unix.map(|v| v as i64),
             ],
         )
         .map_err(internal)?;
@@ -527,7 +627,27 @@ fn row_to_swap(r: &rusqlite::Row<'_>) -> rusqlite::Result<Swap> {
         attempts: r.get(26)?,
         note: r.get(27)?,
         last_error: r.get(28)?,
+        hop2_paying_unix: r.get::<_, Option<i64>>(29)?.map(|v| v as u64),
     })
+}
+
+/// Add the columns an older database lacks.
+fn migrate(conn: &Connection) -> Result<(), ApiError> {
+    let mut st = conn
+        .prepare("SELECT name FROM pragma_table_info('swaps')")
+        .map_err(internal)?;
+    let have: Vec<String> = st
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(internal)?
+        .collect::<Result<_, _>>()
+        .map_err(internal)?;
+    for (name, kind) in ADDED_COLUMNS {
+        if !have.iter().any(|h| h == name) {
+            conn.execute_batch(&format!("ALTER TABLE swaps ADD COLUMN {name} {kind}"))
+                .map_err(internal)?;
+        }
+    }
+    Ok(())
 }
 
 /// Fields of a 1Click status response the driver reads.
@@ -599,7 +719,82 @@ mod tests {
             attempts: 0,
             note: None,
             last_error: None,
+            hop2_paying_unix: None,
         }
+    }
+
+    #[test]
+    fn paying_marker_survives_a_restart() {
+        let store = Store::open_in_memory().unwrap();
+        let mut s = sample();
+        s.state = State::InPool;
+        store.insert(&s).unwrap();
+        s.hop2_paying_unix = Some(5_000);
+        store.update(&s).unwrap();
+        let got = store.get(&s.id).unwrap().unwrap();
+        assert_eq!(got.hop2_paying_unix, Some(5_000));
+        assert!(got.hop2_txid.is_none());
+        assert!(crate::driver::payout_unresolved(&got));
+        s.hop2_txid = Some("abc".into());
+        store.update(&s).unwrap();
+        assert!(!crate::driver::payout_unresolved(
+            &store.get(&s.id).unwrap().unwrap()
+        ));
+    }
+
+    #[test]
+    fn older_database_gets_the_new_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        let old = SCHEMA
+            .replace(",\n    hop2_paying_unix INTEGER", "")
+            .replace("    last_error TEXT,\n", "    last_error TEXT\n");
+        assert!(!old.contains("hop2_paying_unix"));
+        conn.execute_batch(&old).unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap();
+        let n: u32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('swaps') WHERE name='hop2_paying_unix'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn insert_if_below_holds_the_cap() {
+        let store = Store::open_in_memory().unwrap();
+        assert!(store.insert_if_below(&sample(), 2).unwrap());
+        assert!(store.insert_if_below(&sample(), 2).unwrap());
+        assert!(!store.insert_if_below(&sample(), 2).unwrap());
+        assert_eq!(store.count_open().unwrap(), 2);
+    }
+
+    #[test]
+    fn released_landings_are_reused_lowest_first() {
+        let store = Store::open_in_memory().unwrap();
+        assert_eq!(store.take_free_landing().unwrap(), None);
+        store.release_landing(7).unwrap();
+        store.release_landing(3).unwrap();
+        store.release_landing(7).unwrap();
+        assert_eq!(store.take_free_landing().unwrap(), Some(3));
+        assert_eq!(store.take_free_landing().unwrap(), Some(7));
+        assert_eq!(store.take_free_landing().unwrap(), None);
+    }
+
+    #[test]
+    fn coarse_rounding_matches_the_sdk() {
+        // 4.93 ZEC -> 2 ZEC, 0.37 ZEC -> 0.2 ZEC, 7 ZEC -> 5 ZEC
+        assert_eq!(round_down_coarse(493_000_000), 200_000_000);
+        assert_eq!(round_down_coarse(37_000_000), 20_000_000);
+        assert_eq!(round_down_coarse(700_000_000), 500_000_000);
+        assert_eq!(round_down_coarse(100), 100);
+        assert_eq!(round_down_coarse(150), 100);
+        assert_eq!(round_down_coarse(999), 500);
+        assert_eq!(round_down_coarse(1), 1);
+        assert_eq!(round_down_coarse(0), 0);
+        assert!(round_down_coarse(MIN_ZAT + 1) >= MIN_ZAT);
     }
 
     #[test]
@@ -656,6 +851,8 @@ mod tests {
             assert_eq!(parse_rfc3339(&rfc3339(t)), Some(t));
         }
         assert_eq!(parse_rfc3339("nonsense"), None);
+        assert_eq!(parse_rfc3339("99999999999999999999-01-01T00:00:00Z"), None);
+        assert_eq!(parse_rfc3339("2026-13-01T00:00:00Z"), None);
     }
 
     #[test]

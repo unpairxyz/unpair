@@ -345,6 +345,7 @@ dialog h3{margin:0 0 8px;font:400 34px var(--sfx);letter-spacing:.05em}
 .keep .seg{flex:1;max-width:400px}
 .keep .seg button{flex:1;padding:0 8px}
 .knote{margin:8px 0 0;font:600 12.5px/1.4 var(--ui);color:var(--mute)}
+@media (max-width:420px){.keep{flex-direction:column;align-items:stretch}.keep .seg{max-width:none}}
 .knote.warn{color:var(--ink);border-left:6px solid var(--spot);padding-left:8px}
 .legs{border:3px solid var(--ink);margin-top:16px}
 .leg{padding:12px 14px 10px}

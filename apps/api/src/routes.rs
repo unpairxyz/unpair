@@ -350,7 +350,13 @@ async fn hosted_create(
         }
     }
 
-    let landing = h.wallet.next_landing().await.map_err(ApiError::Internal)?;
+    // A landing handed out before and never paid serves first, so swaps that
+    // never got a deposit do not use up the wallet's address gap.
+    let landing = match h.store.take_free_landing()? {
+        Some(index) => h.wallet.landing_at(index).await,
+        None => h.wallet.next_landing().await,
+    }
+    .map_err(ApiError::Internal)?;
     let now = now_unix();
     let body = serde_json::json!({
         "dry": false,
@@ -364,7 +370,7 @@ async fn hosted_create(
         "refundType": "ORIGIN_CHAIN",
         "recipient": landing.shielded,
         "recipientType": "DESTINATION_CHAIN",
-        "deadline": hosted::rfc3339(now + hosted::DEPOSIT_WINDOW_SECS),
+        "deadline": hosted::rfc3339(now.saturating_add(hosted::DEPOSIT_WINDOW_SECS)),
     });
     let fees = if s.config.fee_bps > 0 {
         Some(vec![AppFee {
@@ -374,7 +380,14 @@ async fn hosted_create(
     } else {
         None
     };
-    let quote = s.oneclick.quote(body, fees).await?;
+    let quote = match s.oneclick.quote(body, fees).await {
+        Ok(q) => q,
+        Err(e) => {
+            // Nothing will land on this address: hand it to the next swap.
+            let _ = h.store.release_landing(landing.index);
+            return Err(e);
+        }
+    };
     let q = quote.get("quote").cloned().unwrap_or(Value::Null);
     let str_of = |k: &str| q.get(k).and_then(Value::as_str).map(str::to_string);
     let amount_out: u64 = str_of("amountOut")
@@ -396,7 +409,7 @@ async fn hosted_create(
         .ok_or_else(|| ApiError::Upstream("quote without a deposit address".into()))?;
     let deadline = str_of("deadline")
         .and_then(|d| parse_rfc3339(&d))
-        .unwrap_or(now + hosted::DEPOSIT_WINDOW_SECS);
+        .unwrap_or(now.saturating_add(hosted::DEPOSIT_WINDOW_SECS));
     let signature = s
         .signer
         .sign(&s.config.fee_recipient, s.config.fee_bps, &quote);
@@ -431,8 +444,14 @@ async fn hosted_create(
         attempts: 0,
         note: None,
         last_error: None,
+        hop2_paying_unix: None,
     };
-    h.store.insert(&swap)?;
+    if !h.store.insert_if_below(&swap, h.config.max_open)? {
+        let _ = h.store.release_landing(landing.index);
+        return Err(ApiError::BadRequest(
+            "The hosted service is at its limit of swaps in flight. Try again later or use your own wallet.".into(),
+        ));
+    }
     tracing::info!(id = %swap.id, mode = swap.mode.as_str(), "hosted swap created");
     Ok(Json(HostedCreated {
         swap: swap.view(),
@@ -529,6 +548,28 @@ async fn handoff_put(
 ) -> Result<Json<HandoffCreated>, ApiError> {
     if !req.quote.is_object() {
         return Err(ApiError::BadRequest("quote must be an object".into()));
+    }
+    // Only quotes this server signed are parked, so the store cannot carry
+    // anything else and a parked quote is one the mark can be checked against.
+    let text = |k: &str| req.quote.get(k).and_then(Value::as_str);
+    let signed = match (
+        text("public_key_hex"),
+        text("signature"),
+        text("fee_recipient"),
+        req.quote.get("fee_bps").and_then(Value::as_u64),
+        req.quote.get("quote"),
+    ) {
+        (Some(pk), Some(sig), Some(recipient), Some(bps), Some(inner)) => {
+            pk == s.signer.public_key_hex()
+                && u32::try_from(bps)
+                    .is_ok_and(|bps| QuoteSigner::verify(pk, sig, recipient, bps, inner))
+        }
+        _ => false,
+    };
+    if !signed {
+        return Err(ApiError::BadRequest(
+            "quote is not signed by this server".into(),
+        ));
     }
     let (id, expires_unix) = s
         .handoff
@@ -733,13 +774,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handoff_round_trip() {
+    async fn handoff_refuses_an_unsigned_quote() {
         let app = build_app(test_config());
         let req = Request::post("/v1/handoff")
             .header("content-type", "application/json")
             .body(Body::from(
                 r#"{"quote":{"signature":"abc"},"ttl_secs":600}"#,
             ))
+            .unwrap();
+        let r = app.oneshot(req).await.unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn handoff_round_trip() {
+        let app = build_app(test_config());
+        let signer = QuoteSigner::from_seed([3u8; 32]);
+        let inner = serde_json::json!({"quote": {"amountOut": "1"}});
+        let signed = serde_json::json!({
+            "quote": inner,
+            "fee_recipient": "unpair.near",
+            "fee_bps": 50,
+            "signature": signer.sign("unpair.near", 50, &inner),
+            "public_key_hex": signer.public_key_hex(),
+        });
+        let body = serde_json::json!({"quote": signed, "ttl_secs": 600}).to_string();
+        let req = Request::post("/v1/handoff")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
             .unwrap();
         let r = app.clone().oneshot(req).await.unwrap();
         assert_eq!(r.status(), StatusCode::OK);
@@ -757,7 +819,7 @@ mod tests {
             .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
         let j = body_json(r).await;
-        assert_eq!(j["quote"]["signature"], "abc");
+        assert_eq!(j["quote"]["public_key_hex"], signer.public_key_hex());
         let r = app
             .oneshot(Request::get("/v1/handoff/zz").body(Body::empty()).unwrap())
             .await

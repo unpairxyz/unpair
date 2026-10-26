@@ -11,8 +11,8 @@ cannot be raised by configuration.
 | Quiet, two hops | 0.5% per hop | about 1% in total | about 0.5% | about 0.5% |
 
 The split with 1Click is 50/50 with a 20 basis point floor on 1Click's half. The
-numbers above were measured with live quotes on 25 October 2026. The exact split
-for your quote is read back from the quote itself and shown before you deposit.
+numbers above were measured with live quotes on 25 October 2026. The fee for your
+swap is on the form before you ask for a deposit address.
 
 The cap in code is 1% per hop.
 

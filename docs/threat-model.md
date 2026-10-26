@@ -14,7 +14,7 @@ later spends your ZEC has to live somewhere. You choose where, per swap.
   transparent address and your wallet shields it. For a two-hop swap you send
   the second hop from your own wallet with the Send out tab. Unpair holds
   nothing on this path.
-- **This browser.** The page makes a wallet in the tab for one swap, in a
+- **One-time wallet.** The page makes a wallet in the tab for one swap, in a
   worker, from the same Rust code the server runs. Hop one pays a fresh
   shielded-only address of that wallet. When the note is spendable, after a
   random wait in quiet mode, the tab quotes hop two and pays it from Ironwood.
@@ -27,9 +27,10 @@ later spends your ZEC has to live somewhere. You choose where, per swap.
   shielded-only address of that wallet, so the ZEC lands in Ironwood with no
   transparent step. After a release delay the server pays hop two from the pool
   to the asset and address you chose. Between those two moments the server holds
-  your ZEC, and it sees both ends of your swap. Each swap is one note in and one
-  spend out; there is no pooled balance beyond swaps in flight, and the per-swap
-  and in-flight caps are in the server's configuration and in `/v1/config`.
+  your ZEC, and it sees both ends of your swap. The transit wallet is one account:
+  a payout may spend notes that arrived for other swaps in flight, and change
+  stays in that account. The per-swap and in-flight caps are in the server's
+  configuration and in `/v1/config`.
 - **The Unpair app.** Creates the seed on your device and keeps it in the
   operating system keychain. Same flow as the server path, with the key on your
   machine. Not the focus right now.
@@ -79,7 +80,7 @@ Nothing else. No own node, no own chain, no token.
 - A fresh landing address per swap. Never reused.
 - Payouts go straight into Ironwood when the route can pay a shielded-only address. Transparent payouts are shielded into Ironwood in one step, on your device.
 - Refund addresses follow the payout rule. A shielded-only unified address is refunded straight into the pool, a transparent address is shielded again on receipt. Like the payout address, a refund address is readable for that one transaction, so it is fresh and used once.
-- Quiet mode rounds the amount and releases after a random delay with a mean of about 3 hours and a cap of 12.
+- Quiet mode rounds the deposit and releases after a random delay with a mean of about 3 hours and a cap of 12. The one-time wallet also cuts what it sends on to two digits, and the small rest stays in that wallet. The server path sends on the full amount, so an observer can still match it by value until the denomination split ships.
 - Every fee is shown before the trade and capped in code.
 - "Check on your phone" parks a quote on the server, in memory, only when you ask, under an id nobody can guess, for at most a day. Anyone with that id sees the quote, so the link is yours to keep.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
