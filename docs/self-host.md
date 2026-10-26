@@ -39,9 +39,10 @@ is served under a sub-path instead of a domain of its own.
 Needed for screening and signed quotes. Without a seed file it holds no key that
 can receive funds; with one it runs the hosted swap path described below.
 See `apps/api/README.md`. A 1 vCPU, 1 GB VPS is enough without hosted swaps;
-with them, 2 GB. Build off the box. The "API binary" workflow builds a Linux
-x86_64 release on every push to main and on request, and keeps it as an
-artifact for 30 days. Or build it yourself:
+with them, 2 GB. Build off the box. Every tagged release on GitHub carries the
+Linux x86_64 binary and the page with their sha256 sums; between releases the
+"API binary" workflow keeps a build of main as an artifact for seven days. Or
+build it yourself:
 
 ```sh
 cargo build -p unpair-api --release
