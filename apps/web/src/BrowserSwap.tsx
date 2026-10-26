@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
 import { api, client, config, describeError, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
-import { Address, DoneBurst, Facts, GoButton, Mascot, OUT_WAIT, POOL_WAIT, StatusStrip, VerifyStrip, YouGet, depositWait, short, useElapsed, useEndTime, type HeroStage } from "./ui";
+import { Address, DoneBurst, Facts, GoButton, Mascot, OUT_WAIT, POOL_WAIT, PhoneCheck, StatusStrip, VerifyStrip, YouGet, depositWait, short, useElapsed, useEndTime, type HeroStage } from "./ui";
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
 import type { Balance, Landing, Upgrade } from "./wallet/types";
@@ -62,6 +62,10 @@ export function BrowserSwap(props: Props) {
   const [hop2, setHop2] = useState<{ quote: QuoteResponse; txid: string | null; signed: SignedQuote | null; verified: boolean | null } | null>(null);
   const [hop2Final, setHop2Final] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
+  // the phone check parks hop one's signed quote, so a phone can open it and draw the same mark
+  const [phone, setPhone] = useState(false);
+  const [parked, setParked] = useState<string | null>(null);
+  const [parkError, setParkError] = useState<string | null>(null);
   // what a dry hop-two quote says this swap delivers, asked once for the deposit screen
   const [estimate, setEstimate] = useState<string | null>(null);
   const estimateAsked = useRef(false);
@@ -253,6 +257,16 @@ export function BrowserSwap(props: Props) {
     }
   }, [state2]);
 
+  async function park(signed: SignedQuote) {
+    if (!api) return;
+    try {
+      const r = await api.parkQuote(signed);
+      setParked(`${window.location.origin}${window.location.pathname}?q=${r.id}`);
+    } catch (e) {
+      setParkError(describeError(e));
+    }
+  }
+
   async function download() {
     try {
       const f = await wallet.recovery(plan ?? undefined);
@@ -325,13 +339,19 @@ export function BrowserSwap(props: Props) {
       return (
         <div>
           <div className="wtitle"><b>SEND IT!</b><span className="chip">on {chainLabel(props.token.blockchain)}</span></div>
-          <VerifyStrip seed={seed} code={shortCode(seed)} signedBy={props.signed && props.verified ? "Signed by Unpair" : "Signed by the route"} />
+          <VerifyStrip
+            seed={seed}
+            code={shortCode(seed)}
+            signedBy={props.signed && props.verified ? "Signed by Unpair" : "Signed by the route"}
+            {...(api && props.signed ? { onPhone: () => { setPhone(true); if (!parked && props.signed) void park(props.signed); } } : {})}
+          />
           <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {props.token.symbol}</div></div>
           {estimate && <YouGet value={`${estimate} ${outToken?.symbol ?? ""}`} />}
           <div className="box"><span className="lbl">To this address, once</span><Address value={depositAddress} qr /></div>
           {memo && <div className="box"><span className="lbl">With this memo</span><div className="code">{memo}</div></div>}
           {deadline && <p className="fine">Pay by {deadline.toLocaleTimeString()}. The address bar must say {new URL(config.officialOrigin).host}.</p>}
           <Mascot>The route pays this tab's shielded address. Keep the tab open; I do the rest here.</Mascot>
+          <PhoneCheck open={phone} url={parked} error={parkError} seed={seed} code={shortCode(seed)} onClose={() => setPhone(false)} />
           <GoButton onClick={() => setSent(true)}>I SENT IT!</GoButton>
           <details className="det">
             <summary><span>Already hold ZEC?</span><span className="code">DIRECT</span></summary>
