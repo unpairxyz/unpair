@@ -14,18 +14,52 @@ A small Rust service. It does the parts a static page cannot:
 | GET | `/health` | none | Liveness. |
 | GET | `/v1/config` | none | Fee, cap, screening mode, geofence list, signing public key. |
 | GET | `/v1/pubkey` | none | Quote signing key. |
+| GET | `/v1/tokens` | none | The route's token list, cached here for ten minutes and served stale when the route is down. `cache-control: public, max-age=300`. |
 | POST | `/v1/screen` | none | `{address, chain}` to `{allowed, reason}`. |
-| POST | `/v1/quote` | none | A 1Click quote request body. Screens, forwards with the server's fee, returns `{quote, fee_recipient, fee_bps, signature, public_key_hex}`. |
+| POST | `/v1/quote` | none | A quote request with only the fields the page sends (`dry, swapType, slippageTolerance, originAsset, depositType, destinationAsset, amount, refundTo, refundType, recipient, recipientType, deadline, depositMode?`); any other field is refused. Screens, forwards with the server's fee, returns `{quote, fee_recipient, fee_bps, signature, public_key_hex}`. |
 | GET | `/v1/status/{depositAddress}` | none | 1Click status, with optional `?depositMemo=`. |
 | POST | `/v1/hosted/swaps` | none | Start a hosted swap: `{mode, originAsset, amount, destinationAsset, recipient, refundTo, slippageTolerance?}`. Screens, takes a fresh shielded landing, quotes hop one to it, returns `{swap, quote}`. |
 | GET | `/v1/hosted/swaps/{id}` | the id | Progress of one hosted swap. The id is 16 random bytes; whoever has it sees the swap. |
 | GET | `/v1/hosted/report` | operator token | Wallet balance, proving and upgrade state, swap counts. |
+| GET | `/v1/operator/swaps/{id}` | operator token | The whole swap row, errors included. |
+| POST | `/v1/operator/swaps/{id}/payout` | operator token | `{to, amount_zat?}`: pay a stuck swap out by hand. See below. |
 | POST | `/v1/handoff` | none | `{quote, ttl_secs?}`: park a signed quote in memory for a second device. Returns `{id, expires_unix}`. Opt-in from the page, at most one day, never written to disk. |
 | GET | `/v1/handoff/{id}` | the id | The parked quote. Whoever has the id sees the quote. |
 
 ### Hosted swap states
 
 `waiting_for_deposit`, `routing_in`, `in_pool`, `routing_out`, then `done`, `refunded`, `expired` or `failed`. A `failed` swap holds its ZEC in the transit wallet until the operator acts. Finished swaps are deleted after seven days.
+
+### Rate limit
+
+`UNPAIR_RATE_LIMIT_PER_MIN` (default 20, 0 turns it off) bounds what one client
+address may ask per minute of `/v1/quote`, `/v1/hosted/swaps`, `/v1/screen` and
+`/v1/handoff`. The address is read from `cf-connecting-ip`, then
+`x-forwarded-for`; with neither header every caller shares one bucket. The
+answer over the limit is 429 with a plain message. Put a rate rule at the edge
+as well; this one only protects the partner key and the wallet's addresses.
+
+### Paying a stuck swap out by hand
+
+A swap goes to `failed` when hop two could not be completed, or when a payout
+was handed to the wallet and no transaction id came back. The driver never pays
+such a swap again. Read it first, then pay it to a transparent address you and
+the user agree on. Keep the token in a file, never on the command line:
+
+```sh
+TOKEN=$(cat /etc/unpair/operator.token)
+curl -s -H "Authorization: Bearer $TOKEN" https://api.example.org/v1/operator/swaps/<id>
+curl -s -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"to":"t1...","amount_zat":980000}' \
+  https://api.example.org/v1/operator/swaps/<id>/payout
+```
+
+`amount_zat` defaults to the swap's hop two amount and may not exceed the
+per-swap cap. The payout is written to the swap before the wallet sees it, as
+the driver does. On success the swap closes as `done`, with the transaction id
+in its note for the user and in `last_error` for you. Check the wallet report
+before paying a swap whose earlier payout result was unknown: the first
+transaction may have gone through.
 
 ## Run
 

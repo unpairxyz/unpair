@@ -27,6 +27,8 @@ pub enum ApiError {
     NotFound,
     #[error("not authorized")]
     Unauthorized,
+    #[error("too many requests from this address; wait a minute")]
+    TooMany,
     #[error("hosted swaps are not offered by this server")]
     HostedOff,
     #[error("internal error")]
@@ -50,6 +52,7 @@ impl IntoResponse for ApiError {
             }
             ApiError::NotFound => (StatusCode::NOT_FOUND, "not_found"),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            ApiError::TooMany => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests"),
             ApiError::HostedOff => (StatusCode::NOT_FOUND, "hosted_off"),
             ApiError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         };

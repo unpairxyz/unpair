@@ -11,13 +11,16 @@ use std::path::{Path, PathBuf};
 
 use rand::rngs::SysRng;
 use rand_core::{Infallible, TryCryptoRng, TryRng};
-use zcash_client_backend::data_api::wallet::input_selection::{GreedyInputSelector, SpendPolicy};
+use zcash_client_backend::data_api::wallet::input_selection::{
+    GreedyInputSelector, LockFilter, LockedInputPolicy, SpendPolicy,
+};
 use zcash_client_backend::data_api::wallet::{
     create_proposed_transactions, propose_shielding, propose_transfer, ConfirmationsPolicy,
     SpendingKeys,
 };
 use zcash_client_backend::data_api::{
-    Account as _, AccountBirthday, CoinbaseFilter, WalletRead, WalletWrite,
+    Account as _, AccountBirthday, CoinbaseFilter, InputSource, MaxSpendMode, TargetValue,
+    WalletRead, WalletWrite,
 };
 use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::fees::{DustOutputPolicy, StandardFeeRule};
@@ -125,6 +128,9 @@ impl Default for ShieldPolicy {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Balance {
     pub ironwood_spendable: u64,
+    /// How many Ironwood notes make up `ironwood_spendable`. The hop-two fee
+    /// grows with the notes spent (ZIP 317), so the reserve is sized from this.
+    pub ironwood_notes: u64,
     pub ironwood_total: u64,
     pub orchard_total: u64,
     pub sapling_total: u64,
@@ -139,6 +145,10 @@ pub struct Payout {
     pub txid: TxId,
     pub raw: Vec<u8>,
     pub fee: Zatoshis,
+    /// Set when the transaction was built and stored but the broadcast call
+    /// failed. It may still be on the chain: the node can have accepted it
+    /// before the reply was lost. The caller keeps the txid and watches.
+    pub broadcast_error: Option<String>,
 }
 
 /// Build the Ironwood proving key and keep it in the process-wide cache that
@@ -426,12 +436,44 @@ impl ShieldWallet {
         };
         if let Some(a) = summary.account_balances().get(&self.account) {
             b.ironwood_spendable = a.ironwood_balance().spendable_value().into_u64();
+            b.ironwood_notes = self.spendable_ironwood_note_count();
             b.ironwood_total = a.ironwood_balance().total().into_u64();
             b.orchard_total = a.orchard_balance().total().into_u64();
             b.sapling_total = a.sapling_balance().total().into_u64();
             b.unshielded = a.unshielded_balance().total().into_u64();
         }
         Ok(b)
+    }
+
+    /// The number of Ironwood notes spendable under the default policy. Best
+    /// effort: a counting error reports zero rather than failing the balance.
+    fn spendable_ironwood_note_count(&self) -> u64 {
+        let policy = ConfirmationsPolicy::default();
+        let heights = match self.db.get_target_and_anchor_heights(policy.untrusted()) {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!(error = ?e, "note count: no target height");
+                return 0;
+            }
+        };
+        let Some((target, _anchor)) = heights else {
+            return 0;
+        };
+        match self.db.select_spendable_notes(
+            self.account,
+            TargetValue::AllFunds(MaxSpendMode::MaxSpendable),
+            &[ShieldedPool::Ironwood],
+            target,
+            policy,
+            &[],
+            LockFilter::Policy(&LockedInputPolicy::Exclude),
+        ) {
+            Ok(notes) => notes.ironwood().len() as u64,
+            Err(e) => {
+                tracing::warn!(error = ?e, "note count failed");
+                0
+            }
+        }
     }
 
     /// Hop two. Build, prove, sign and store a transaction that pays `amount`
@@ -551,10 +593,17 @@ impl ShieldWallet {
             .ok_or_else(|| Error::Send(format!("built transaction {txid} not found in wallet")))?;
         let mut raw = Vec::new();
         tx.write(&mut raw)?;
-        Ok(Payout { txid, raw, fee })
+        Ok(Payout {
+            txid,
+            raw,
+            fee,
+            broadcast_error: None,
+        })
     }
 
-    /// Sync, pay, broadcast. Hop two in one call.
+    /// Sync, pay, broadcast. Hop two in one call. A failed broadcast is not
+    /// an error: the transaction is built and stored, so the txid comes back
+    /// with `broadcast_error` set and the caller watches the chain.
     pub async fn sync_and_pay<C: Connector>(
         &mut self,
         pool: &Pool<C>,
@@ -562,8 +611,11 @@ impl ShieldWallet {
         amount: Zatoshis,
     ) -> Result<Payout, Error> {
         self.sync(pool).await?;
-        let payout = self.pay_transparent(to, amount)?;
-        pool.send_raw_transaction(payout.raw.clone()).await?;
+        let mut payout = self.pay_transparent(to, amount)?;
+        if let Err(e) = pool.send_raw_transaction(payout.raw.clone()).await {
+            tracing::warn!(txid = %payout.txid, error = %e, "payout built, broadcast failed");
+            payout.broadcast_error = Some(e.to_string());
+        }
         Ok(payout)
     }
 

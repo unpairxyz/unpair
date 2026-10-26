@@ -58,6 +58,7 @@ Minimum production settings:
 - `UNPAIR_SCREENING=denylist` or `http`. Never `off` on a public URL.
 - `UNPAIR_SIGNING_SEED` set once and kept. Publish the public key next to your domain.
 - `UNPAIR_GEOFENCE_REQUIRE_HEADER=true` when the edge always sets the country header.
+- `UNPAIR_RATE_LIMIT_PER_MIN` (default 20) per client address on the endpoints that cost something. Add a rate rule at the edge too.
 
 ### Hosted swaps
 

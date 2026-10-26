@@ -85,6 +85,31 @@ Nothing else. No own node, no own chain, no token.
 - "Check on your phone" parks a quote on the server, in memory, only when you ask, under an id nobody can guess, for at most a day. Anyone with that id sees the quote, so the link is yours to keep.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
 
+## Your IP address
+
+The chains never see your IP. These parties can:
+
+| Who | Sees your IP when | Keeps it |
+|---|---|---|
+| Cloudflare, in front of unpair.xyz and the API | You open the page or the page asks the API for a quote, a status or the token list. | Cloudflare's own logs. |
+| Unpair's API | Same requests, through Cloudflare. | Not logged with a verdict or a swap. The country code is read for the geofence and dropped. |
+| The gRPC-web proxy for the one-time wallet | The tab reads the chain. The proxy also learns which blocks the tab asked for, not what it found in them. | Access log off. |
+| The route (1Click) | Only when the page runs without an API, which the public site does not. On the server path the route sees Unpair's IP, never yours. | Its policy. |
+
+To hide it from all of them, use the page in Tor Browser or behind NymVPN:
+
+- **Tor Browser** works at the Standard security level. The one-time wallet
+  needs WebAssembly and a worker, which the Safer level allows and the Safest
+  level blocks. The 9 MB wallet module takes a minute to arrive over Tor.
+- **NymVPN** in mixnet mode is slower but hides timing as well as the
+  address. The fast mode is a two-hop VPN. Either works with the page as is.
+- A plain VPN moves the trust to the VPN provider.
+
+The page itself does not route through Tor or Nym: a browser page cannot. A
+future client could carry the lightwalletd and route calls over the Nym
+mixnet from inside the app; the Nym SDK offers a browser build, but it is
+experimental and not used here.
+
 ## Routes we have not added
 
 Maya Protocol pays shielded Zcash, but into Sapling, a pool about ten times

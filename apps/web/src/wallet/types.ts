@@ -17,6 +17,8 @@ export interface Landing {
 
 export interface Balance {
   ironwood_spendable: number;
+  /** Notes behind `ironwood_spendable`; the hop-two fee grows with them. */
+  ironwood_notes: number;
   ironwood_total: number;
   unshielded: number;
   chain_tip: number | null;
@@ -26,6 +28,8 @@ export interface Balance {
 export interface Payout {
   txid: string;
   fee: number;
+  /** Set when the transaction was built but the broadcast failed. It may still be on the chain. */
+  broadcast_error: string | null;
 }
 
 export interface Upgrade {
