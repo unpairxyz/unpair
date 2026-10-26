@@ -93,8 +93,9 @@ export interface EstimateRequest {
   /** Base units of the origin asset. */
   amount: string;
   destinationAsset: string;
-  recipient: string;
-  refundTo: string;
+  /** Empty before the user has typed it; the server puts a well-formed stand-in on the chain in its place. */
+  recipient?: string;
+  refundTo?: string;
   slippageTolerance?: number;
   /** Who keeps the ZEC between the hops. The one-time wallet pays the routing fee on hop two as well. */
   custody?: "server" | "browser";

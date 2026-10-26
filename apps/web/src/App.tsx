@@ -256,28 +256,33 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const zecVerdict = zecCheck ? describeCheck(zecCheck) : null;
   const destCheck = custody === "own" ? (zecVerdict ? { ok: zecVerdict.ok, text: zecVerdict.text } : null) : b && dest.trim() ? checkAddressForChain(dest, b.blockchain) : null;
   const refundCheck = a && refund.trim() ? checkAddressForChain(refund, a.blockchain) : null;
-  // Once the form is complete, the route itself says what you get: the same dry quotes the deposit screen shows.
-  // Until then, and when the route does not answer, the price estimate stands.
-  const estimateKey = a && b && plan && destCheck?.ok && refundCheck?.ok && api ? [custody, mode, a.assetId, b.assetId, plan.send.toString(), dest.trim(), refund.trim(), slippage].join("|") : null;
-  const [live, setLive] = useState<{ key: string; out: number } | null>(null);
+  // As soon as the tokens and the amount are in, the route itself says what you get: the same dry quotes the deposit
+  // screen shows. Addresses go along once they are valid; before that the server puts a stand-in on the chain.
+  // While the route answers the number is blank. The price guess stands only where the route cannot answer.
+  const destOk = destCheck?.ok ? dest.trim() : "";
+  const refundOk = refundCheck?.ok ? refund.trim() : "";
+  const estimateKey = a && b && plan && api && !(custody === "own" && !destOk) ? [custody, mode, a.assetId, b.assetId, plan.send.toString(), destOk, refundOk, slippage].join("|") : null;
+  const [live, setLive] = useState<{ key: string; out: number | null } | null>(null);
   useEffect(() => {
     if (!estimateKey || !api || !a || !b || !plan) return;
     const key = estimateKey;
     const ask = api;
     const t = setTimeout(() => {
       ask
-        .estimate({ mode, originAsset: a.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, recipient: dest.trim(), refundTo: refund.trim(), slippageTolerance: slippage, ...(custody !== "own" ? { custody } : {}) })
+        .estimate({ mode, originAsset: a.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, recipient: destOk, refundTo: refundOk, slippageTolerance: slippage, ...(custody !== "own" ? { custody } : {}) })
         .then((e) => {
           const n = Number(e.estimate_out);
-          if (Number.isFinite(n) && n > 0) setLive({ key, out: n });
+          setLive({ key, out: Number.isFinite(n) && n > 0 ? n : null });
         })
-        .catch(() => {});
-    }, 700);
+        .catch(() => setLive({ key, out: null }));
+    }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [estimateKey]);
-  const out = live && live.key === estimateKey ? live.out : priceOut;
-  const minOut = out * (1 - slippage / 10_000);
+  const answered = live && live.key === estimateKey ? live : null;
+  // null while the route is being asked
+  const out: number | null = !estimateKey ? priceOut : answered ? (answered.out ?? priceOut) : null;
+  const minOut = (out ?? 0) * (1 - slippage / 10_000);
 
   let label = "GET DEPOSIT ADDRESS";
   if (!a || !b) label = tokens.length ? "PICK A TOKEN" : "LOADING TOKENS";
@@ -324,8 +329,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       }
       if (custody === "browser") {
         if (!config.lwdGrpcWebUrl || !zec) throw new Error("The one-time wallet needs a Zcash wallet server.");
-        setBusyText("LOADING THE WALLET");
-        const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl);
+        setBusyText("DOWNLOADING THE WALLET");
+        const wallet = await BrowserWallet.create(config.zcashNetwork, config.lwdGrpcWebUrl, (step) => setBusyText(step === "download" ? "DOWNLOADING THE WALLET" : "CONNECTING TO ZCASH"));
         try {
           const landing = await wallet.nextLanding();
           setBusyText("GETTING A QUOTE");
@@ -454,8 +459,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
           <Leg
             second
             label="You get"
-            usd={out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}
-            amount={<output aria-live="polite" className={out > 0 ? undefined : "zero"}>{out > 0 ? fmt(out) : "0"}</output>}
+            usd={out !== null && out > 0 && b ? `≈ $${fmt(out * b.price, 2)}` : ""}
+            amount={<output aria-live="polite" className={out !== null && out > 0 ? undefined : "zero"}>{out === null ? "…" : out > 0 ? fmt(out) : "0"}</output>}
             token={custody === "own" ? <TokenButton fixed token={zec} label="You get ZEC" /> : <TokenButton token={bPicked} label="Token you receive" onClick={() => setPicking("out")} />}
             note={custody === "own" ? "into your shielded wallet" : null}
             picks={custody === "own" ? null : <QuickPicks tokens={pickable} value={outId} onPick={(t) => pickToken("out", t)} label="Quick picks to get" />}
@@ -468,7 +473,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       </AddressRows>
       <Hint>{hint}</Hint>
       {a && b && plan && !(same && custody === "own") && (
-        <Details a={a} b={b} amount={sendNum} out={out} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
+        <Details a={a} b={b} amount={sendNum} out={out ?? 0} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
       )}
       {small && a && b && plan && <p className="fine">Small swaps lose more to fixed network fees. The exact amount comes with the quote.</p>}
       {custody === "server" && hostedInfo && (

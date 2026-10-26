@@ -61,8 +61,11 @@ export function parseRecovery(text: string, network: ZcashNetwork): Recovery {
   return out;
 }
 
-/** Loading the 9 MB module and reading the chain tip; slow links need minutes. */
-const OPEN_TIMEOUT_MS = 180_000;
+/** Downloading the 9 MB module; a slow link needs minutes. */
+const LOAD_TIMEOUT_MS = 180_000;
+/** Reading the chain tip and the tree state from the wallet server. */
+const OPEN_TIMEOUT_MS = 60_000;
+export type OpenStep = "download" | "connect";
 /** A short call that only reads the wallet. */
 const CALL_TIMEOUT_MS = 30_000;
 
@@ -89,9 +92,12 @@ export class BrowserWallet {
   }
 
   /** A fresh wallet, scanning from the chain tip. */
-  static async create(network: ZcashNetwork, grpcWebUrl: string): Promise<BrowserWallet> {
+  static async create(network: ZcashNetwork, grpcWebUrl: string, onStep?: (step: OpenStep) => void): Promise<BrowserWallet> {
     const w = new BrowserWallet(network);
     try {
+      onStep?.("download");
+      await w.call({ op: "load" }, LOAD_TIMEOUT_MS, "The wallet module did not finish downloading. Check the connection and try again.");
+      onStep?.("connect");
       await w.call({ op: "open", network, url: grpcWebUrl }, OPEN_TIMEOUT_MS);
     } catch (e) {
       w.close();
@@ -101,9 +107,12 @@ export class BrowserWallet {
   }
 
   /** The wallet from a recovery file, scanning from its birthday. */
-  static async recover(r: Recovery, grpcWebUrl: string): Promise<BrowserWallet> {
+  static async recover(r: Recovery, grpcWebUrl: string, onStep?: (step: OpenStep) => void): Promise<BrowserWallet> {
     const w = new BrowserWallet(r.network);
     try {
+      onStep?.("download");
+      await w.call({ op: "load" }, LOAD_TIMEOUT_MS, "The wallet module did not finish downloading. Check the connection and try again.");
+      onStep?.("connect");
       await w.call({ op: "open", network: r.network, url: grpcWebUrl, phrase: r.phrase, birthday: r.birthday }, OPEN_TIMEOUT_MS);
     } catch (e) {
       w.close();
@@ -117,14 +126,14 @@ export class BrowserWallet {
    * such as a wallet server that stops mid-stream, into an error the page
    * can show; proving and scanning run without one.
    */
-  private call(request: WalletRequest, timeoutMs?: number): Promise<unknown> {
+  private call(request: WalletRequest, timeoutMs?: number, timeoutText = "The wallet server did not answer in time. Check the connection and try again."): Promise<unknown> {
     const id = this.next++;
     return new Promise((resolve, reject) => {
       let timer: number | null = null;
       if (timeoutMs) {
         timer = window.setTimeout(() => {
           if (!this.pending.delete(id)) return;
-          reject(new Error("The wallet server did not answer in time. Check the connection and try again."));
+          reject(new Error(timeoutText));
         }, timeoutMs);
       }
       this.pending.set(id, {
