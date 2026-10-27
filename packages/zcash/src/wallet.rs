@@ -44,6 +44,7 @@ use zcash_transparent::address::TransparentAddress;
 
 use crate::cache::MemBlockCache;
 use crate::error::Error;
+use crate::fees::hop2_reserve;
 use crate::keys::{spending_key, Landing, Seed};
 use crate::lightwalletd::{Connector, Pool};
 use crate::send::{check_payout_address, upgrade_guard};
@@ -132,6 +133,9 @@ pub struct Balance {
     /// How many Ironwood notes make up `ironwood_spendable`. The hop-two fee
     /// grows with the notes spent (ZIP 317), so the reserve is sized from this.
     pub ironwood_notes: u64,
+    /// What to keep back before quoting hop two, from [`crate::fees::hop2_reserve`]
+    /// for `ironwood_notes`.
+    pub hop2_reserve: u64,
     pub ironwood_total: u64,
     pub orchard_total: u64,
     pub sapling_total: u64,
@@ -425,7 +429,10 @@ impl ShieldWallet {
             .get_wallet_summary(ConfirmationsPolicy::default())
             .map_err(Error::wallet)?;
         let Some(summary) = summary else {
-            return Ok(Balance::default());
+            return Ok(Balance {
+                hop2_reserve: hop2_reserve(1).into_u64(),
+                ..Default::default()
+            });
         };
         let mut b = Balance {
             chain_tip: Some(u32::from(summary.chain_tip_height())),
@@ -440,6 +447,7 @@ impl ShieldWallet {
             b.sapling_total = a.sapling_balance().total().into_u64();
             b.unshielded = a.unshielded_balance().total().into_u64();
         }
+        b.hop2_reserve = hop2_reserve(b.ironwood_notes as usize).into_u64();
         Ok(b)
     }
 

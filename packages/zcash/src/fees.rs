@@ -53,6 +53,18 @@ pub fn payout_fee(notes: usize) -> Zatoshis {
     Zatoshis::from_u64(MARGINAL_FEE.into_u64() * actions).expect("fee fits")
 }
 
+/// The smallest hop-two reserve, in zatoshis: the fee for a one note payout
+/// plus one margin action. The page uses it before a wallet exists.
+pub const HOP2_RESERVE_FLOOR_ZAT: u64 = 20_000;
+
+/// What a wallet keeps back from its spendable balance before quoting hop
+/// two: [`payout_fee`] for `notes` plus one more action, in case a note lands
+/// between the quote and the proof. Never below [`HOP2_RESERVE_FLOOR_ZAT`].
+pub fn hop2_reserve(notes: usize) -> Zatoshis {
+    let reserve = payout_fee(notes.max(1)).into_u64() + MARGINAL_FEE.into_u64();
+    Zatoshis::from_u64(reserve.max(HOP2_RESERVE_FLOOR_ZAT)).expect("fee fits")
+}
+
 /// Zatoshis as a decimal ZEC string with trailing zeros removed.
 pub fn format_zec(amount: Zatoshis) -> String {
     let units = amount.into_u64();
@@ -91,6 +103,15 @@ mod tests {
         assert_eq!(payout_fee(2).into_u64(), 15_000);
         assert_eq!(payout_fee(3).into_u64(), 20_000);
         assert!(describe_payout_fee(1).contains("0.00015 ZEC"));
+    }
+
+    #[test]
+    fn hop2_reserve_is_the_payout_fee_plus_one_action() {
+        assert_eq!(hop2_reserve(0).into_u64(), HOP2_RESERVE_FLOOR_ZAT);
+        assert_eq!(hop2_reserve(1).into_u64(), 20_000);
+        assert_eq!(hop2_reserve(2).into_u64(), 20_000);
+        assert_eq!(hop2_reserve(3).into_u64(), 25_000);
+        assert_eq!(hop2_reserve(10).into_u64(), 60_000);
     }
 
     #[test]

@@ -14,7 +14,7 @@ import { Address, DoneBurst, Facts, GoButton, Id, Mascot, OUT_WAIT, POOL_WAIT, P
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
 import type { Balance, Landing, Upgrade } from "./wallet/types";
-import { hop2FeeReserveZat } from "./wallet/fees";
+import { HOP2_FEE_RESERVE_FLOOR_ZAT } from "./wallet/fees";
 
 const SYNC_EVERY_MS = 30_000;
 
@@ -74,7 +74,7 @@ export function BrowserSwap(props: Props) {
     const landing0 = props.recovery === undefined ? props.landing : undefined;
     if (phase !== "deposit" || !quote0 || !landing0 || !plan || !outToken || !zec || estimateAsked.current) return;
     estimateAsked.current = true;
-    let amount = BigInt(quote0.quote.amountOut) - hop2FeeReserveZat(1);
+    let amount = BigInt(quote0.quote.amountOut) - HOP2_FEE_RESERVE_FLOOR_ZAT;
     if (plan.mode === "quiet" && amount > 0n) amount = roundDownSignificant(amount, 2).amount;
     if (amount <= 0n) return;
     const deadlineIso = new Date(Date.now() + 15 * 60_000).toISOString();
@@ -173,7 +173,7 @@ export function BrowserSwap(props: Props) {
 
   const spendable = BigInt(balance?.ironwood_spendable ?? 0);
   // the fee grows with the notes spent, so the reserve follows the note count
-  const canSend = spendable > hop2FeeReserveZat(balance?.ironwood_notes ?? 1) && !(upgrade?.sending_paused ?? false);
+  const canSend = spendable > BigInt(balance?.hop2_reserve ?? HOP2_FEE_RESERVE_FLOOR_ZAT) && !(upgrade?.sending_paused ?? false);
   useEffect(() => {
     if (phase !== "pool" || !canSend || !plan) return;
     if (plan.mode === "fast") {
@@ -206,7 +206,7 @@ export function BrowserSwap(props: Props) {
         await wallet.sync();
         const b = await wallet.balance();
         setBalance(b);
-        let amount = BigInt(b.ironwood_spendable) - hop2FeeReserveZat(b.ironwood_notes);
+        let amount = BigInt(b.ironwood_spendable) - BigInt(b.hop2_reserve);
         if (amount <= 0n) throw new Error("Nothing to send.");
         // quiet mode sends an amount cut to two digits, so the two hops do not match to the unit; the rest, under a tenth, stays in this wallet
         if (plan.mode === "quiet") amount = roundDownSignificant(amount, 2).amount;

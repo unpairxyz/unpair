@@ -24,7 +24,7 @@ import { BrowserSwap } from "./BrowserSwap";
 import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWallet";
 import type { Landing } from "./wallet/types";
-import { hop2FeeReserveZat } from "./wallet/fees";
+import { HOP2_FEE_RESERVE_FLOOR_ZAT } from "./wallet/fees";
 import {
   Address,
   AddressRow,
@@ -235,7 +235,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   // what the button says while the form works: the one-time wallet has a loading step before the quote
   const [busyText, setBusyText] = useState("GETTING A QUOTE");
   // the two-hop keepers keep a network fee reserve back from the ZEC before hop two; it comes off the estimate too
-  const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(hop2FeeReserveZat(1), ZEC_DECIMALS)) * zec.price) / b.price : 0;
+  const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(HOP2_FEE_RESERVE_FLOOR_ZAT, ZEC_DECIMALS)) * zec.price) / b.price : 0;
   const priceOut = a && b && b.price > 0 ? Math.max(0, (sendNum * a.price * (1 - feeFraction) ** hops) / b.price - reserveOut) : 0;
   const small = a !== null && sendNum > 0 && sendNum * a.price < 20;
   // the same token in and out is fine through the pool: two hops, and only the link is gone

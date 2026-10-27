@@ -44,6 +44,7 @@ pub struct Landing {
 pub struct Balance {
     pub ironwood_spendable: u64,
     pub ironwood_notes: u64,
+    pub hop2_reserve: u64,
     pub ironwood_total: u64,
     pub unshielded: u64,
     pub chain_tip: Option<u32>,
@@ -185,6 +186,7 @@ impl WebWallet {
         let out = Balance {
             ironwood_spendable: b.ironwood_spendable,
             ironwood_notes: b.ironwood_notes,
+            hop2_reserve: b.hop2_reserve,
             ironwood_total: b.ironwood_total,
             unshielded: b.unshielded,
             chain_tip: b.chain_tip,

@@ -19,6 +19,8 @@ export interface Balance {
   ironwood_spendable: number;
   /** Notes behind `ironwood_spendable`; the hop-two fee grows with them. */
   ironwood_notes: number;
+  /** Zatoshis the wallet keeps back before quoting hop two, computed by the crate for `ironwood_notes`. */
+  hop2_reserve: number;
   ironwood_total: number;
   unshielded: number;
   chain_tip: number | null;
