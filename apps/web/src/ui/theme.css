@@ -428,5 +428,8 @@ dialog .qr svg{width:240px;height:240px;max-width:100%}
 .facts dd{margin:0;min-width:0;text-align:right;font:700 14px var(--ui);overflow-wrap:anywhere}
 .facts dd.m{font:700 13.5px var(--mono)}
 .facts a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+.idv{display:inline-flex;gap:8px;align-items:baseline}
+.idcopy{all:unset;cursor:pointer;font:inherit;border-bottom:2px dotted var(--ink)}
+.idcopy:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 .fine.left{text-align:left;margin-top:4px}
 .k b{margin-right:24px}

@@ -51,10 +51,10 @@ import {
   Story,
   Summary,
   TokenButton,
-  TxLink,
+  Id,
   YouGet,
   depositWait,
-  short,
+  zcashTxUrl,
   useElapsed,
   useEndTime,
   OUT_WAIT,
@@ -691,7 +691,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   const elapsed = useElapsed(start, useEndTime(final));
   const inSym = direction === "out" ? "ZEC" : token.symbol;
   const outSym = direction === "in" ? "ZEC" : token.symbol;
-  const txRows = (status?.swapDetails.destinationChainTxHashes ?? []).map((tx, i, all): Fact => [all.length > 1 ? `Transaction ${i + 1}` : "Transaction", <TxLink hash={tx.hash} url={tx.explorerUrl} />, true]);
+  const txRows = (status?.swapDetails.destinationChainTxHashes ?? []).map((tx, i, all): Fact => [all.length > 1 ? `Transaction ${i + 1}` : "Transaction", <Id value={tx.hash} url={tx.explorerUrl} />, true]);
   // a deposit that never comes: stop polling a while after the deadline and say so
   const [late, setLate] = useState(false);
   useEffect(() => {
@@ -741,7 +741,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
         <Facts rows={[
           ["Sent", `${q.amountInFormatted} ${inSym}`, true],
           current === "landed" && ["Got", `${q.amountOutFormatted} ${outSym}`, true],
-          ["To", short(quote.quoteRequest.recipient), true],
+          ["To", <Id value={quote.quoteRequest.recipient} />, true],
           ...txRows,
           ["Time", elapsed],
         ]} />
@@ -792,7 +792,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
       <Facts rows={[
         ["Send", `${q.amountInFormatted} ${inSym}`, true],
         ["Get about", `${q.amountOutFormatted} ${outSym}`, true],
-        ["To", short(quote.quoteRequest.recipient), true],
+        ["To", <Id value={quote.quoteRequest.recipient} />, true],
         ...txRows,
         ["Time", elapsed],
       ]} />
@@ -864,11 +864,11 @@ function HostedTracking({ id, first, signed, tokens, verified, second = false, o
           ["Sent", amountIn, true],
           swap.delivered_amount && ["Got", `${swap.delivered_amount} ${outToken?.symbol ?? ""}`, true],
           !swap.delivered_amount && ["Receive", outLabel],
-          ["To", short(swap.destination_address), true],
+          ["To", <Id value={swap.destination_address} />, true],
           swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total}`, true],
-          swap.delivered_tx && ["Transaction", short(swap.delivered_tx), true],
+          swap.delivered_tx && ["Transaction", <Id value={swap.delivered_tx} />, true],
           ["Time", elapsed],
-          ["Swap id", short(swap.id), true],
+          ["Swap id", <Id value={swap.id} />, true],
         ]} />
         {swap.note && <p className="fine">{swap.note}</p>}
         {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
@@ -915,10 +915,10 @@ function HostedTracking({ id, first, signed, tokens, verified, second = false, o
         ["Sent", amountIn, true],
         ["Receive", outLabel],
         swap.estimate_out && !swap.delivered_amount && ["Get about", `${fmt(Number(swap.estimate_out))} ${outToken?.symbol ?? ""}`, true],
-        ["To", short(swap.destination_address), true],
+        ["To", <Id value={swap.destination_address} />, true],
         swap.zec_received !== null && ["In the pool", `${formatUnits(BigInt(swap.zec_received), ZEC_DECIMALS)} ZEC`, true],
         swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total} delivered`, true],
-        swap.hop2_txid && ["Zcash tx", short(swap.hop2_txid), true],
+        swap.hop2_txid && ["Zcash tx", <Id value={swap.hop2_txid} url={zcashTxUrl(swap.hop2_txid, config.zcashNetwork)} />, true],
         ["Time", elapsed],
       ]} />
       {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}

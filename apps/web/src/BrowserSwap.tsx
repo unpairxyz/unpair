@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
 import { api, client, config, describeError, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
-import { Address, DoneBurst, Facts, GoButton, Mascot, OUT_WAIT, POOL_WAIT, PhoneCheck, StatusStrip, VerifyStrip, YouGet, depositWait, short, useElapsed, useEndTime, type HeroStage } from "./ui";
+import { Address, DoneBurst, Facts, GoButton, Id, Mascot, OUT_WAIT, POOL_WAIT, PhoneCheck, StatusStrip, VerifyStrip, YouGet, depositWait, useElapsed, useEndTime, zcashTxUrl, type HeroStage } from "./ui";
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
 import type { Balance, Landing, Upgrade } from "./wallet/types";
@@ -230,7 +230,7 @@ export function BrowserSwap(props: Props) {
         const to = r.quote.quote.depositAddress;
         if (!to) throw new Error("The route gave no address to pay.");
         setHop2({ quote: r.quote, txid: null, signed: r.signed, verified: r.verified });
-        setWorking("Proving and sending the Zcash transaction. This takes a minute.");
+        setWorking("Proving and sending the Zcash transaction. The proof takes about a minute in this tab. The route then needs about 10 min of confirmations.");
         const paid = await wallet.pay(to, BigInt(r.quote.quote.amountIn));
         setHop2((h) => (h ? { ...h, txid: paid.txid } : h));
         setWorking(null);
@@ -370,7 +370,7 @@ export function BrowserSwap(props: Props) {
         <Facts rows={[
           ["Send", `${q.amountInFormatted} ${props.token.symbol}`, true],
           ["Receive", `${outToken?.symbol ?? ""} on ${chainLabel(outToken?.blockchain ?? "")}`],
-          ["To", short(props.dest), true],
+          ["To", <Id value={props.dest} />, true],
           ["Time", elapsed],
         ]} />
         {pollError1 && <p className="err-line">Status check failed, retrying: {pollError1}</p>}
@@ -383,9 +383,7 @@ export function BrowserSwap(props: Props) {
   if (phase === "pool" || phase === "out") {
     const inPool = balance ? formatUnits(BigInt(balance.ironwood_total), ZEC_DECIMALS) : null;
     const release = releaseAt ? new Date(releaseAt) : null;
-    const poolText = phase === "out"
-      ? (working ?? "Paying hop two.")
-      : !balance
+    const poolText = !balance
         ? "Scanning the chain for the landed note."
         : balance.ironwood_total === 0
           ? "Nothing has landed yet. Watching the chain."
@@ -399,12 +397,12 @@ export function BrowserSwap(props: Props) {
     return (
       <div>
         <div className="wtitle"><b>{phase === "out" ? "HOP TWO" : "IN THE POOL"}</b>{balance?.scanned_to ? <span className="code">block {balance.scanned_to}</span> : null}</div>
-        <StatusStrip current={phase === "out" ? 3 : 2} texts={{ 0: "Deposit seen.", 1: "Swapped into ZEC.", 2: poolText, 3: phase === "out" ? (hop2?.txid ? OUT_WAIT : poolText) : OUT_WAIT }} />
+        <StatusStrip current={phase === "out" ? 3 : 2} texts={{ 0: "Deposit seen.", 1: "Swapped into ZEC.", 2: phase === "out" ? `${inPool ?? ""} ZEC in the pool, spendable.` : poolText, 3: phase === "out" ? (hop2?.txid ? OUT_WAIT : (working ?? "Paying hop two.")) : OUT_WAIT }} />
         <Facts rows={[
           inPool !== null && ["In the pool", `${inPool} ZEC`, true],
           plan && outToken && ["Receive", `${outToken.symbol} on ${chainLabel(outToken.blockchain)}`],
-          plan && ["To", short(plan.recipient), true],
-          hop2?.txid && ["Zcash tx", short(hop2.txid), true],
+          plan && ["To", <Id value={plan.recipient} />, true],
+          hop2?.txid && ["Zcash tx", <Id value={hop2.txid} url={zcashTxUrl(hop2.txid, config.zcashNetwork)} />, true],
           ["Time", elapsed],
         ]} />
         {hop2?.txid && plan?.mode === "quiet" && <p className="fine">Quiet mode sent a rounded amount. The small rest stays in this wallet, and the recovery file can spend it.</p>}
@@ -438,8 +436,8 @@ export function BrowserSwap(props: Props) {
       {(status1?.swapDetails.refundReason || status2?.swapDetails.refundReason) && <p className="err-line">Reason: {status2?.swapDetails.refundReason ?? status1?.swapDetails.refundReason}</p>}
       <Facts rows={[
         state2 === "landed" && q2 && outToken && ["Got", `${q2.amountOutFormatted} ${outToken.symbol}`, true],
-        plan && ["To", short(plan.recipient), true],
-        hop2?.txid && ["Zcash tx", short(hop2.txid), true],
+        plan && ["To", <Id value={plan.recipient} />, true],
+        hop2?.txid && ["Zcash tx", <Id value={hop2.txid} url={zcashTxUrl(hop2.txid, config.zcashNetwork)} />, true],
         ["Time", elapsed],
       ]} />
       {state2 === "landed" && <Mascot face="happy" red={false}>The one-time wallet is empty now. Its key is forgotten when you leave. Keep the recovery file anyway until you have checked your balance.</Mascot>}

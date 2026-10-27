@@ -23,9 +23,32 @@ export function short(value: string): string {
   return value.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 }
 
-/** A transaction id, linked to the explorer when the route gives a safe link. */
-export function TxLink({ hash, url }: { hash: string; url?: string }) {
-  return url?.startsWith("https://") ? <a href={url} target="_blank" rel="noopener noreferrer">{short(hash)}</a> : <>{short(hash)}</>;
+/** The explorer page of a Zcash transaction. Opening it tells the explorer the txid and the viewer's IP. */
+export function zcashTxUrl(txid: string, network: "main" | "test"): string {
+  return `https://${network === "test" ? "testnet" : "mainnet"}.zcashexplorer.app/transactions/${txid}`;
+}
+
+/**
+ * An address or id in a facts row. Shown cut to its ends; a click copies the
+ * full value. With `url`, a second link opens the explorer page in a new tab.
+ */
+export function Id({ value, url }: { value: string; url?: string }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <span className="idv">
+      <button type="button" className="idcopy" title={`Copy ${value}`} onClick={() => void copy()} aria-live="polite">{copied ? "copied" : short(value)}</button>
+      {url?.startsWith("https://") && <a href={url} target="_blank" rel="noopener noreferrer">view</a>}
+    </span>
+  );
 }
 
 function minutes(ms: number): string {
