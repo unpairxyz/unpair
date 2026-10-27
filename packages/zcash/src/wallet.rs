@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use rand::rngs::SysRng;
 use rand_core::{Infallible, TryCryptoRng, TryRng};
+use zcash_client_backend::data_api::error::Error as WalletError;
 use zcash_client_backend::data_api::wallet::input_selection::{
     GreedyInputSelector, LockFilter, LockedInputPolicy, SpendPolicy,
 };
@@ -23,7 +24,7 @@ use zcash_client_backend::data_api::{
     WalletRead, WalletWrite,
 };
 use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
-use zcash_client_backend::fees::{DustOutputPolicy, StandardFeeRule};
+use zcash_client_backend::fees::{ChangeError, DustOutputPolicy, StandardFeeRule};
 use zcash_client_backend::proto::service::TreeState;
 use zcash_client_backend::sync;
 #[cfg(not(target_family = "wasm"))]
@@ -371,13 +372,10 @@ impl ShieldWallet {
             CoinbaseFilter::default(),
             None,
         )
-        .map_err(|e| {
-            let text = format!("{e:?}");
-            if text.contains("InsufficientFunds") || text.contains("NoSpendableFunds") {
-                Error::NothingToShield
-            } else {
-                Error::Shield(text)
-            }
+        .map_err(|e| match e {
+            WalletError::InsufficientFunds { .. }
+            | WalletError::Change(ChangeError::InsufficientFunds { .. }) => Error::NothingToShield,
+            other => Error::Shield(format!("{other:?}")),
         })?;
 
         let prover = self.prover()?;
@@ -517,13 +515,12 @@ impl ShieldWallet {
             None,
             None,
         )
-        .map_err(|e| {
-            let text = format!("{e:?}");
-            if text.contains("InsufficientFunds") {
+        .map_err(|e| match e {
+            WalletError::InsufficientFunds { .. }
+            | WalletError::Change(ChangeError::InsufficientFunds { .. }) => {
                 Error::InsufficientFunds
-            } else {
-                Error::Send(text)
             }
+            other => Error::Send(format!("{other:?}")),
         })?;
 
         // The proposal must be the one shape we expect: one step, Ironwood
