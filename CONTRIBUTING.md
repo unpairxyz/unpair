@@ -21,7 +21,30 @@ Releases are signed tags on `main`.
 ## Commits
 
 Sign your commits. Write the subject as a plain sentence that says what the
-change does for the user or the operator, not which file it touched.
+change does for the user or the operator, not which file it touched. One
+commit is one change; a fix to an earlier commit on the same branch goes into
+that commit, not on top of it.
+
+## Code style
+
+The Rust crates follow the
+[librustzcash style guide](https://github.com/zcash/librustzcash/blob/main/CONTRIBUTING.md#styleguides):
+
+- `cargo fmt` formats everything, and CI checks it. `cargo clippy` stays clean
+  for the code you touch.
+- Make invalid states unrepresentable. Wrap bare integers and strings in
+  newtypes with documented meaning; use enums instead of booleans; keep struct
+  fields private behind constructors that check their invariants.
+- Anything `pub` is public API and carries a doc comment. Test-only
+  capabilities sit behind a feature flag, not in the public surface.
+- Prefer immutable data and functions without side effects. Pass in what a
+  function needs instead of reaching for globals.
+- A change that alters the public API, fixes a bug, or changes behaviour
+  updates the docs and tests in the same commit.
+
+TypeScript follows the same spirit: `pnpm typecheck` and `pnpm test` pass,
+exports are the public API, and a module exports only what another module
+uses.
 
 ## Rules that every change keeps
 
