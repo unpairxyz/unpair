@@ -31,7 +31,7 @@ pub const MIN_ZAT: u64 = 100_000;
 /// Zatoshis kept back for the hop-two network fee. ZIP 317 for up to three
 /// notes in and two outputs. Whatever the real fee leaves over stays as change
 /// in the transit wallet.
-pub const HOP2_FEE_RESERVE_ZAT: u64 = 20_000;
+pub const HOP2_FEE_RESERVE_ZAT: u64 = unpair_zcash::fees::HOP2_RESERVE_FLOOR_ZAT;
 
 /// Release delay in quiet mode. Exponential with this mean, capped.
 pub const RELEASE_MEAN_BLOCKS: f64 = 144.0;

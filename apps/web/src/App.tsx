@@ -24,7 +24,7 @@ import { BrowserSwap } from "./BrowserSwap";
 import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
 import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWallet";
 import type { Landing } from "./wallet/types";
-import { hop2FeeReserveZat } from "./wallet/fees";
+import { HOP2_FEE_RESERVE_FLOOR_ZAT } from "./wallet/fees";
 import {
   Address,
   AddressRow,
@@ -51,10 +51,10 @@ import {
   Story,
   Summary,
   TokenButton,
-  TxLink,
+  Id,
   YouGet,
   depositWait,
-  short,
+  zcashTxUrl,
   useElapsed,
   useEndTime,
   OUT_WAIT,
@@ -235,7 +235,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   // what the button says while the form works: the one-time wallet has a loading step before the quote
   const [busyText, setBusyText] = useState("GETTING A QUOTE");
   // the two-hop keepers keep a network fee reserve back from the ZEC before hop two; it comes off the estimate too
-  const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(hop2FeeReserveZat(1), ZEC_DECIMALS)) * zec.price) / b.price : 0;
+  const reserveOut = custody !== "own" && zec && b && b.price > 0 ? (Number(formatUnits(HOP2_FEE_RESERVE_FLOOR_ZAT, ZEC_DECIMALS)) * zec.price) / b.price : 0;
   const priceOut = a && b && b.price > 0 ? Math.max(0, (sendNum * a.price * (1 - feeFraction) ** hops) / b.price - reserveOut) : 0;
   const small = a !== null && sendNum > 0 && sendNum * a.price < 20;
   // the same token in and out is fine through the pool: two hops, and only the link is gone
@@ -691,7 +691,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   const elapsed = useElapsed(start, useEndTime(final));
   const inSym = direction === "out" ? "ZEC" : token.symbol;
   const outSym = direction === "in" ? "ZEC" : token.symbol;
-  const txRows = (status?.swapDetails.destinationChainTxHashes ?? []).map((tx, i, all): Fact => [all.length > 1 ? `Transaction ${i + 1}` : "Transaction", <TxLink hash={tx.hash} url={tx.explorerUrl} />, true]);
+  const txRows = (status?.swapDetails.destinationChainTxHashes ?? []).map((tx, i, all): Fact => [all.length > 1 ? `Transaction ${i + 1}` : "Transaction", <Id value={tx.hash} url={tx.explorerUrl} />, true]);
   // a deposit that never comes: stop polling a while after the deadline and say so
   const [late, setLate] = useState(false);
   useEffect(() => {
@@ -741,7 +741,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
         <Facts rows={[
           ["Sent", `${q.amountInFormatted} ${inSym}`, true],
           current === "landed" && ["Got", `${q.amountOutFormatted} ${outSym}`, true],
-          ["To", short(quote.quoteRequest.recipient), true],
+          ["To", <Id value={quote.quoteRequest.recipient} />, true],
           ...txRows,
           ["Time", elapsed],
         ]} />
@@ -792,7 +792,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
       <Facts rows={[
         ["Send", `${q.amountInFormatted} ${inSym}`, true],
         ["Get about", `${q.amountOutFormatted} ${outSym}`, true],
-        ["To", short(quote.quoteRequest.recipient), true],
+        ["To", <Id value={quote.quoteRequest.recipient} />, true],
         ...txRows,
         ["Time", elapsed],
       ]} />
@@ -864,11 +864,11 @@ function HostedTracking({ id, first, signed, tokens, verified, second = false, o
           ["Sent", amountIn, true],
           swap.delivered_amount && ["Got", `${swap.delivered_amount} ${outToken?.symbol ?? ""}`, true],
           !swap.delivered_amount && ["Receive", outLabel],
-          ["To", short(swap.destination_address), true],
+          ["To", <Id value={swap.destination_address} />, true],
           swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total}`, true],
-          swap.delivered_tx && ["Transaction", short(swap.delivered_tx), true],
+          swap.delivered_tx && ["Transaction", <Id value={swap.delivered_tx} />, true],
           ["Time", elapsed],
-          ["Swap id", short(swap.id), true],
+          ["Swap id", <Id value={swap.id} />, true],
         ]} />
         {swap.note && <p className="fine">{swap.note}</p>}
         {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
@@ -915,10 +915,10 @@ function HostedTracking({ id, first, signed, tokens, verified, second = false, o
         ["Sent", amountIn, true],
         ["Receive", outLabel],
         swap.estimate_out && !swap.delivered_amount && ["Get about", `${fmt(Number(swap.estimate_out))} ${outToken?.symbol ?? ""}`, true],
-        ["To", short(swap.destination_address), true],
+        ["To", <Id value={swap.destination_address} />, true],
         swap.zec_received !== null && ["In the pool", `${formatUnits(BigInt(swap.zec_received), ZEC_DECIMALS)} ZEC`, true],
         swap.parts_total > 1 && ["Parts", `${swap.parts_delivered} of ${swap.parts_total} delivered`, true],
-        swap.hop2_txid && ["Zcash tx", short(swap.hop2_txid), true],
+        swap.hop2_txid && ["Zcash tx", <Id value={swap.hop2_txid} url={zcashTxUrl(swap.hop2_txid, config.zcashNetwork)} />, true],
         ["Time", elapsed],
       ]} />
       {swap.dust_zat !== null && swap.dust_zat > 0 && <p className="fine">{formatUnits(BigInt(swap.dust_zat), ZEC_DECIMALS)} ZEC under the smallest size stays behind.</p>}
