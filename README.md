@@ -1,8 +1,9 @@
 # Unpair
 
 Unpair unlinks a transfer across chains. You deposit an asset on one chain and receive it, or another
-asset, on a second chain at an address you choose. The two ends have no on-chain link, because the
-transfer lands in Zcash's shielded pool in between.
+asset, on a second chain at an address you choose. No transaction connects the two ends, because the
+transfer lands in Zcash's shielded pool in between and leaves it from a shielded spend. In fast mode,
+amount and timing can still suggest a match. Quiet mode rounds the amount and waits a random time.
 
 Live at [unpair.xyz](https://unpair.xyz). Early: small caps, one route, and the limits below. Read the
 [threat model](docs/threat-model.md) before you trust it with anything that matters.
@@ -88,15 +89,20 @@ into the pool and out to another. The 1Click client is `packages/sdk/src/oneclic
    for this step.
 2. Pick who holds the ZEC between the hops. Pick "one-time wallet": you see a recovery file to save.
 3. Send a small deposit. You see each step: "Deposit seen", "In the pool", "Sent", "Done".
-4. Look up the deposit and the payout on their chain explorers. They have no on-chain link to
-   each other.
+4. Look up the Base or other source deposit on the
+   [NEAR Intents explorer](https://explorer.near-intents.org/). The swap ends with a payout to the
+   one-time wallet's address.
+5. Open the "Zcash tx" link on the page. Hop two spends from the shielded pool, and the spend does not
+   show which note it used.
+6. Look up the payout on the same explorer. It is a separate swap from step 4. In fast mode, the amount
+   and time can still suggest a match. Quiet mode rounds the amount and waits a random time, up to
+   12 hours. NEAR Intents still sees each hop.
 
 To check the code without funds: `pnpm install && pnpm test` and `cargo test`. The 1Click tests
 are in `packages/sdk/test/oneclick.test.ts`.
 
-**Built in the window.** The first commit is 25 Oct 2026, after the hackathon announcement on
-19 Oct 2026. All code in this repository is hackathon work: see the
-[full history](https://github.com/unpairxyz/unpair/commits/main/).
+**Built in the window.** The first commit is 25 Oct 2026, inside the window that opened on 19 Oct 2026.
+See the [full history](https://github.com/unpairxyz/unpair/commits/main/).
 
 **Libraries.** We wrote the 1Click client, the fee rules, the swap planner and the Zcash crate. We
 use these libraries: the Zcash crates (`zcash_client_backend`, `zcash_client_sqlite`,
