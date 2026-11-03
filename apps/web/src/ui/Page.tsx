@@ -95,7 +95,7 @@ export function Footer() {
   return (
     <footer>
       <span className="tbc">TO BE CONTINUED...</span>
-      <span>unpair.xyz · <a href="https://github.com/unpairxyz/unpair">GitHub</a></span>
+      <span>unpair.xyz · <a href="https://github.com/unpairxyz/unpair">GitHub</a> · <a href="https://github.com/unpairxyz/unpair/blob/main/docs/terms.md">Terms</a></span>
     </footer>
   );
 }

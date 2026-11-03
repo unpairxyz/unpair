@@ -72,6 +72,38 @@ against the release.
   the ZEC under it.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
 
+## NEAR HACKATHON
+
+Unpair is our entry for [NEAR HACKATHON](https://nearhackathon.com), tracks `privacy` and `defi`.
+
+**What NEAR does here.** NEAR Intents, through the 1Click API, does both swaps. Hop one swaps the
+asset you send into ZEC and pays it to a fresh shielded Zcash address. Hop two swaps ZEC from the pool
+into the asset you get, on the chain you pick. Without NEAR Intents there is no route from one chain
+into the pool and out to another. The 1Click client is `packages/sdk/src/oneclick/client.ts`.
+
+**Try it.**
+
+1. Open [unpair.xyz](https://unpair.xyz). Pick what you send, what you get, and the address it goes
+   to. You see the fee and the estimate from 1Click before anything is created. No funds are needed
+   for this step.
+2. Pick who holds the ZEC between the hops. Pick "one-time wallet": you see a recovery file to save.
+3. Send a small deposit. You see each step: "Deposit seen", "In the pool", "Sent", "Done".
+4. Look up the deposit and the payout on their chain explorers. They have no on-chain link to
+   each other.
+
+To check the code without funds: `pnpm install && pnpm test` and `cargo test`. The 1Click tests
+are in `packages/sdk/test/oneclick.test.ts`.
+
+**Built in the window.** The first commit is 25 Oct 2026, after the hackathon announcement on
+19 Oct 2026. All code in this repository is hackathon work: see the
+[full history](https://github.com/unpairxyz/unpair/commits/main/).
+
+**Libraries.** We wrote the 1Click client, the fee rules, the swap planner and the Zcash crate. We
+use these libraries: the Zcash crates (`zcash_client_backend`, `zcash_client_sqlite`,
+`zcash_primitives`, `zcash_keys`, `orchard`, `sapling-crypto`, `zip32`, `zip321`), `axum`, `tokio`,
+`reqwest`, `rusqlite`, `ed25519-dalek`, `tonic`, React, `@noble/ed25519` and `@noble/hashes`. The
+`vendor/` folder has small patches to `zcash_client_backend` and `rusqlite` for the browser build.
+
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
