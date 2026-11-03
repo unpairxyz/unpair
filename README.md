@@ -73,9 +73,7 @@ against the release.
   the ZEC under it.
 - Addresses are screened before execution. Sanctioned jurisdictions are not served.
 
-## NEAR HACKATHON
-
-Unpair is our entry for [NEAR HACKATHON](https://nearhackathon.com), tracks `privacy` and `defi`.
+## NEAR integration
 
 **What NEAR does here.** NEAR Intents, through the 1Click API, does both swaps. Hop one swaps the
 asset you send into ZEC and pays it to a fresh shielded Zcash address. Hop two swaps ZEC from the pool
@@ -101,8 +99,7 @@ into the pool and out to another. The 1Click client is `packages/sdk/src/oneclic
 To check the code without funds: `pnpm install && pnpm test` and `cargo test`. The 1Click tests
 are in `packages/sdk/test/oneclick.test.ts`.
 
-**Built in the window.** The first commit is 25 Oct 2026, inside the window that opened on 19 Oct 2026.
-See the [full history](https://github.com/unpairxyz/unpair/commits/main/).
+**Built since 19 Oct 2026.** The first commit is 25 Oct 2026. See the [full history](https://github.com/unpairxyz/unpair/commits/main/).
 
 **Libraries.** We wrote the 1Click client, the fee rules, the swap planner and the Zcash crate. We
 use these libraries: the Zcash crates (`zcash_client_backend`, `zcash_client_sqlite`,
