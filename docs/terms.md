@@ -1,6 +1,6 @@
 # Terms
 
-Last updated 30 October 2026.
+Last updated 3 November 2026.
 
 These terms cover the page at unpair.xyz and the API at api.unpair.xyz. Unpair is run by its maintainers. There is no registered company behind it. The code is open source under the MIT licence at github.com/unpairxyz/unpair.
 
@@ -26,11 +26,17 @@ The routing fee is 0.5% of each hop. The cap is 1% per hop and is written in the
 
 Two checks run before every quote. Requests from Cuba, Iran, North Korea and Syria are refused. The refund address and the destination address are checked against a list. A refused request gets no quote and no deposit address, so nothing is taken.
 
+You may not use Unpair if you are on a sanctions or restricted-party list, if you act for someone who is, or if you are located, organised or ordinarily resident in a sanctioned or restricted country. NEAR Intents has the same rule and can block, hold or refuse a hop.
+
 Unpair never asks who you are. There is no account, no email and no identity form.
 
 ## The route operator
 
 Each hop is settled by NEAR Intents. During a hop your funds are with that operator, under its own terms at near-intents.org.
+
+NEAR Intents is operated by Intents Technology. You have no direct contract with Intents Technology and no rights against it. It gives no warranty and does not guarantee price, execution or uptime. You release it, its affiliates, and their officers, directors, employees, contractors and agents from all liability.
+
+On-chain transactions cannot be reversed. They carry network fees, slippage, and bridge and cross-chain risk. You accept the risks of wallet security, blockchains and digital assets.
 
 ## Refunds
 
