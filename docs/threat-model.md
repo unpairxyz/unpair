@@ -20,9 +20,11 @@ later spends your ZEC has to live somewhere. You choose where, per swap.
   random wait in quiet mode, the tab quotes hop two and pays it from Ironwood.
   The key never leaves the tab. The page offers a recovery file before it shows
   the deposit address, and that file is the only way back in if the tab closes.
-  Unpair holds nothing on this path. The tab reads the chain through a gRPC-web
-  proxy, which sees the tab's IP and the block ranges it asks for, never a key
-  or a note.
+  Unpair holds nothing on this path. Hop two never goes through our API: the
+  tab screens the destination against a hashed list and asks 1Click itself
+  for the quote and the status. The tab reads the chain and sends hop two
+  through a gRPC-web proxy, which sees the tab's IP and the block ranges it
+  asks for, never a key or a note.
 - **Unpair's server.** The server holds a transit key. Hop one pays a fresh
   shielded-only address of that wallet, so the ZEC lands in Ironwood with no
   transparent step. After a release delay the server pays hop two from the pool
@@ -41,8 +43,8 @@ your own wallet otherwise. The server is never the default.
 | Anyone watching public chains | Sees the deposit on the source chain. Sees a payout enter a pool of about 4 million ZEC. Can match only by amount and timing. | Same, and rounded amounts plus a random release delay break amount and timing matches. | Strong from day one. |
 | The route operator for a hop (NEAR Intents today) | Sees the sender, the recipient address and the amount of its own leg. Unlinkability against it is its logging policy. | Each operator sees one leg only. Hop one sees a payout into the pool. Hop two sees a source with no history. | Quiet mode uses a different operator for each hop when one is available. |
 | Anyone, for a payout straight into the pool | The route's bridge encrypts the shielded output with an all-zero outgoing key, so the amount and the receiving address of that one payout are readable by anyone. The note is in the pool, but the swap itself is public. | Same for hop one. Hop two spends from the pool, and that spend is unlinkable. | This is why each address is used once, and why the unlinking comes from the later spend, not from the payout. |
-| Unpair, own-wallet path | Nothing that links the two ends. Quotes are requested from your device. The server sees the addresses it screens, one request at a time, and never a deposit and a destination together. | Nothing. | We are the party that would receive a subpoena. On this path there is nothing to hand over. |
-| Unpair, browser path | Nothing that links the two ends. Each hop is quoted from your device like the own-wallet path. | Nothing. | The gRPC-web proxy, Unpair's or a self-hoster's, sees the tab's IP and which blocks it fetched, not what it found in them. Use Tor Browser if that matters. |
+| Unpair, own-wallet path | Hop one: your deposit and the Zcash address it pays. For Send out, only the asset, chain and amount the estimate asks for. The quote goes from your device to 1Click directly, and your wallet sends the payment through its own server, so we never get your destination. | Same. | We are the party that would receive a subpoena. On this path we have no record that links the two ends. |
+| Unpair, browser path | Hop one: your deposit and the one-time wallet's address. For hop two, only the asset, chain and amount the estimate asks for. Hop two is screened on your device and quoted by 1Click directly, so the API never gets your destination or hop two's deposit address. | Same. | The gRPC-web proxy is on our server too. It relays hop two's transaction, which pays the route's deposit address, and 1Click's public status maps that address to your destination. With the tab's IP on both hops, we could link them. Tor Browser stops the IP match. |
 | Unpair, server path | Both ends: the deposit, the receiving address and the timing, for seven days after the swap finishes. | Same, plus the release delay it chose. | This is the price of closing the tab. The server is the one party able to link your swap. |
 | Your network provider | Sees that you reached the page, the API, or the gRPC-web proxy. | Same. | See "Your IP address" below. |
 
@@ -89,7 +91,7 @@ The chains never see your IP. These parties can:
 | Cloudflare, in front of unpair.xyz and the API | You open the page or the page asks the API for a quote, a status or the token list. | Cloudflare's own logs. |
 | Unpair's API | Same requests, through Cloudflare. | Not logged with a verdict or a swap. The country code is read for the geofence and dropped. |
 | The gRPC-web proxy for the one-time wallet | The tab reads the chain. The proxy also learns which blocks the tab asked for, not what it found in them. | Access log off. |
-| The route (1Click) | Only when the page runs without an API, which the public site does not. On the server path the route sees Unpair's IP, never yours. | Its policy. |
+| The route (1Click) | When the page asks it for hop two of the one-time wallet or for Send out, and for every quote when the page runs without an API. It already sees that hop's addresses. On the server path the route sees Unpair's IP, never yours. | Its policy. |
 
 To hide it from all of them, use the page in Tor Browser or behind NymVPN:
 
@@ -104,6 +106,21 @@ The page itself does not route through Tor or Nym: a browser page cannot. A
 future native client could carry the lightwalletd and route calls over the
 Nym mixnet itself; the Nym SDK offers a browser build, but it is experimental
 and not used here.
+
+## Confidential intents, tested and not used
+
+1Click can mark a swap confidential (`confidentiality: basic`). That hides the
+swap's amounts and addresses from the public NEAR Intents explorer. It does not
+hide them from 1Click, and both chains still show the deposit and the payout.
+A public [leak study](https://github.com/codedforum/piptradedex/blob/main/private-intent/experiments/leak-study/REPORT.md)
+of 116 live trades, run on 2 November 2026, linked 90 of 101 confidential
+trades from public chain data: amounts within 2% and payouts within an hour. We tested it on 6 November 2026 with a dry quote of 0.02 ZEC to USDC on
+Solana. It needs the partner key, so the page cannot ask for it directly
+without exposing that key. And 1Click adds 0.2% of its own on top of our fee,
+so the quote gave 0.47% less. Unpair gets the effect this aims at another way:
+the shielded pool cuts the on-chain link between the hops, and quiet mode
+cuts the amount and time link. We may offer it as an option on the server
+path later.
 
 ## Routes we have not added
 

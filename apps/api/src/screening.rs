@@ -4,6 +4,10 @@
 //! the address screen on the refund and destination addresses. A flagged
 //! flow gets no quote, so no fee is ever taken from it. Results are logged
 //! without the caller's IP.
+//!
+//! A denylist can also go to the page whole, as hashes. The page then checks
+//! an address itself and never sends it here: the one-time wallet screens
+//! where hop two goes without telling this server.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -11,9 +15,18 @@ use std::time::Duration;
 
 use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::config::{GeofenceConfig, ScreeningConfig};
 use crate::error::ApiError;
+
+/// How [`address_hash`] makes a list entry from an address. The page does the same.
+pub const LIST_HASH: &str = "sha256(lowercase(trim(address)))";
+
+/// One list entry: SHA-256 of the trimmed, lower-case address, as hex.
+pub fn address_hash(address: &str) -> String {
+    hex::encode(Sha256::digest(address.trim().to_lowercase().as_bytes()))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Verdict {
@@ -63,7 +76,8 @@ pub fn geofence(cfg: &GeofenceConfig, headers: &HeaderMap) -> Verdict {
 #[derive(Clone)]
 pub enum Screener {
     Off,
-    Denylist(HashSet<String>),
+    /// The listed addresses, lower case, and their hashes, sorted, made once at load.
+    Denylist(HashSet<String>, Vec<String>),
     Http {
         client: reqwest::Client,
         url: String,
@@ -94,7 +108,12 @@ impl Screener {
                 );
                 Screener::Off
             }
-            ScreeningConfig::Denylist { path } => Screener::Denylist(load_denylist(path)?),
+            ScreeningConfig::Denylist { path } => {
+                let set = load_denylist(path)?;
+                let mut hashes: Vec<String> = set.iter().map(|a| address_hash(a)).collect();
+                hashes.sort();
+                Screener::Denylist(set, hashes)
+            }
             ScreeningConfig::Http {
                 url,
                 api_key_header,
@@ -118,8 +137,19 @@ impl Screener {
     pub fn mode(&self) -> &'static str {
         match self {
             Screener::Off => "off",
-            Screener::Denylist(_) => "denylist",
+            Screener::Denylist(..) => "denylist",
             Screener::Http { .. } => "http",
+        }
+    }
+
+    /// Every listed address as a hash, sorted, so a page can screen an address
+    /// without sending it. None when a vendor screens each address: that list
+    /// is not ours to hand out, and the page asks `screen` instead.
+    pub fn list(&self) -> Option<Vec<String>> {
+        match self {
+            Screener::Off => Some(Vec::new()),
+            Screener::Denylist(_, hashes) => Some(hashes.clone()),
+            Screener::Http { .. } => None,
         }
     }
 
@@ -131,7 +161,7 @@ impl Screener {
         }
         match self {
             Screener::Off => Ok(Verdict::allow("off")),
-            Screener::Denylist(set) => Ok(if set.contains(&address.to_lowercase()) {
+            Screener::Denylist(set, _) => Ok(if set.contains(&address.to_lowercase()) {
                 Verdict::deny("denylist", "This address cannot be used with Unpair.")
             } else {
                 Verdict::allow("denylist")
@@ -247,6 +277,37 @@ mod tests {
             s.screen("", "eth").await,
             Err(ApiError::BadRequest(_))
         ));
+    }
+
+    #[test]
+    fn address_hash_trims_and_ignores_case() {
+        // the page's test has the same vectors
+        assert_eq!(
+            address_hash("0xabc"),
+            "eb4b9e8905923468a20ce3dc86bcdefef67f743a8156f44ca52e548e62e2c8f0"
+        );
+        assert_eq!(address_hash(" 0xABC "), address_hash("0xabc"));
+    }
+
+    #[tokio::test]
+    async fn the_list_holds_hashes_of_the_denylist_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("deny.txt");
+        std::fs::write(
+            &p,
+            "# comment\nt1dUDJ62ANtmebE8drFg7g2MWYwXHQ6Xu3F\n0xABC\n",
+        )
+        .unwrap();
+        let s = Screener::from_config(&ScreeningConfig::Denylist { path: p }).unwrap();
+        let list = s.list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list.windows(2).all(|w| w[0] <= w[1]));
+        assert!(list.contains(&address_hash("0xabc")));
+        assert!(list.contains(
+            &"52680b61dbf16729d6c9a0f97e86b9556613f79564a6d70a22d887cace87f52e".to_string()
+        ));
+        assert!(!list.iter().any(|h| h.contains("abc")));
+        assert_eq!(Screener::Off.list(), Some(Vec::new()));
     }
 
     #[tokio::test]

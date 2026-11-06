@@ -1,3 +1,6 @@
 # One address per line. Case does not matter. Text after # is ignored.
 # Fill from your screening provider's export or the public sanctions lists.
+# apps/api/scripts/ofac-denylist.mjs builds one from the US Treasury's SDN list.
+# The whole file is public at /v1/screen/list, as hashes: never put a
+# provider's licensed list here.
 0x0000000000000000000000000000000000000000  # example entry, remove

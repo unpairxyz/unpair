@@ -1,9 +1,9 @@
 # Unpair web app
 
-A static page. With the API configured, addresses are screened one at a time
-and quotes come back signed; the host of the page itself never sees a key, and
-on the own-wallet and one-time-wallet paths no server sees your deposit and
-your destination together.
+A static page. With the API configured, hop one is screened and its quote comes
+back signed. The host of the page itself never sees a key. On the one-time
+wallet and Send out, the hop that names your destination goes from the page to
+1Click directly: the API never gets that address.
 
 ## Icons
 
@@ -43,7 +43,7 @@ Environment values are public and end up in the bundle:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VITE_ONECLICK_JWT` | empty | Partner key for 1Click. Optional. |
+| `VITE_ONECLICK_JWT` | empty | Partner key for 1Click. Optional, and public once built: set it only for a page without an API. |
 | `VITE_FEE_RECIPIENT` | `unpair.near` | Who receives the routing fee. Self-hosters can set their own. |
 | `VITE_FEE_BPS` | `50` | Routing fee in basis points. The SDK caps it at 100. |
 | `VITE_OFFICIAL_ORIGIN` | `https://unpair.xyz` | Shown in the notice on other origins. |
@@ -119,28 +119,55 @@ these apart.
 - **Fee and time per choice.** Two chips next to each choice, and the summary
   line under the form, say what each path costs and how long it takes. Quiet
   mode adds its random wait.
-- **Check on your phone.** Parks the signed quote on the API for a second
-  device, which must show the same mark and code.
+- **Check on your phone.** Parks hop one's signed quote on the API for a
+  second device, which must show the same mark and code. Send out has no
+  signed quote, because the API never gets it, so it has no phone check. The
+  page checks that quote itself before it shows it: it must name your
+  address, asset and amount, and carry no fee above ours plus what 1Click
+  documents.
 - **Slippage.** 0.5%, 1% or 2%, in the settings behind the small button.
 
 ## With the API
 
 Set `VITE_API_URL` and `VITE_API_PUBKEY` to route through unpair-api. The page then:
 
-1. screens the refund and Zcash addresses, and stops with the reason if one is refused,
-2. asks the API for a quote, which the API forwards to 1Click with its own fee and signs,
+1. screens hop one's refund and destination addresses, and stops with the reason if one is refused,
+2. asks the API for hop one's quote, which the API forwards to 1Click with its own fee and signs,
 3. verifies the signature against the pinned key before showing the quote,
-4. polls status through the API.
+4. polls hop one's status through the API.
+
+A hop that names your final destination does not go through the API. These
+are hop two of the one-time wallet and Send out. For them the page:
+
+1. fetches the API's whole denylist as hashes (`GET /v1/screen/list`), and
+   checks the addresses itself. Every caller gets the same list, so the API
+   learns nothing about the address,
+2. asks 1Click directly for the quote, with the same routing fee in it, and
+   refuses it unless it names the same addresses, assets and amount, and its
+   fee is no more than ours plus the 0.25% 1Click documents for a call
+   without a partner key,
+3. polls that hop's status on 1Click directly.
+
+The API never gets that hop's destination or its deposit address. The form's
+estimate leaves the destination out on these paths, and the API prices the hop
+with a stand-in address. An API that screens with a vendor has no list to
+give. The page then sends it the addresses to screen, one at a time.
 
 Without the API the page calls 1Click directly and no screening happens, which is
 fine for local development and for self-hosters who accept that.
 
 ## Privacy notes
 
-- Your browser fetches the token list from 1Click directly, and quotes too
-  when no API is configured. Use Tor Browser or a VPN if you do not want the
-  route to see your IP. The one-time wallet also reads the chain through the
-  gRPC-web proxy, which sees the tab's IP.
+- Your browser asks 1Click directly for the hop that names your destination,
+  and for every quote when no API is configured. Use Tor Browser or a VPN if
+  you do not want the route to see your IP. The one-time wallet also reads the
+  chain and sends hop two through the gRPC-web proxy, which sees the tab's IP.
+  The proxy relays hop two's transaction, which pays the route's deposit
+  address, and the route's public status maps that address to your
+  destination. If the API and the proxy run on one server, as on unpair.xyz,
+  its operator could link the two hops by IP. Tor Browser stops that.
+- The page's Content-Security-Policy must allow `https://1click.chaindefuser.com`
+  in `connect-src`.
 - The page keeps only the theme and your recent tokens in local storage. No
   key, no address and no swap is stored. Closing the tab loses the status view
   of your own-wallet swap, not the swap; a hosted swap comes back by its link;

@@ -5,11 +5,16 @@
  * note is spendable, waits in quiet mode, then quotes hop two and pays it
  * from Ironwood. The tab must stay open; the recovery file reopens the
  * wallet in a new tab and finishes from the pool.
+ *
+ * Hop two never goes through the Unpair API: the tab screens the destination
+ * against the API's hashed list and asks the route itself, so the API never
+ * gets the address the coins go to. The chain proxy still relays hop two's
+ * transaction, which pays the route's address.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ZEC_DECIMALS, formatUnits, roundDownSignificant, scheduleRelease, type QuoteInput, type QuoteResponse, type StatusResponse, type TokenInfo } from "@unpair/sdk";
 import { STATE_COPY, depositDeadline, stateOf, type Mode, type SignedQuote } from "@unpair/client";
-import { api, client, config, describeError, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
+import { api, client, config, describeError, fmt, markSeed, quotePrivately, shortCode, usePoll } from "./core";
 import { Address, DoneBurst, Facts, GoButton, Id, Mascot, OUT_WAIT, POOL_WAIT, PhoneCheck, StatusStrip, VerifyStrip, YouGet, depositWait, useElapsed, useEndTime, zcashTxUrl, type HeroStage } from "./ui";
 import { chainLabel } from "./ui/tokens";
 import { offerDownload, type BrowserWallet, type Recovery, type RecoveryPlan } from "./wallet/browserWallet";
@@ -59,7 +64,7 @@ export function BrowserSwap(props: Props) {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [upgrade, setUpgrade] = useState<Upgrade | null>(null);
   const [releaseAt, setReleaseAt] = useState<number | null>(null);
-  const [hop2, setHop2] = useState<{ quote: QuoteResponse; txid: string | null; signed: SignedQuote | null; verified: boolean | null } | null>(null);
+  const [hop2, setHop2] = useState<{ quote: QuoteResponse; txid: string | null } | null>(null);
   const [hop2Final, setHop2Final] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
   // the phone check parks hop one's signed quote, so a phone can open it and draw the same mark
@@ -77,7 +82,6 @@ export function BrowserSwap(props: Props) {
     let amount = BigInt(quote0.quote.amountOut) - HOP2_FEE_RESERVE_FLOOR_ZAT;
     if (plan.mode === "quiet" && amount > 0n) amount = roundDownSignificant(amount, 2).amount;
     if (amount <= 0n) return;
-    const deadlineIso = new Date(Date.now() + 15 * 60_000).toISOString();
     const request: QuoteInput = {
       swapType: "EXACT_INPUT",
       slippageTolerance: plan.slippageBps,
@@ -89,12 +93,12 @@ export function BrowserSwap(props: Props) {
       refundType: "ORIGIN_CHAIN",
       recipient: plan.recipient,
       recipientType: "DESTINATION_CHAIN",
-      deadline: new Date(deadlineIso),
+      deadline: new Date(Date.now() + 15 * 60_000),
       dry: true,
     };
     let alive = true;
-    const ask = api ? api.quote({ ...request, deadline: deadlineIso, dry: true }).then((s) => s.quote) : client.dryQuote(request);
-    ask.then((r) => alive && setEstimate(r.quote.amountOutFormatted ?? null)).catch(() => {});
+    // straight from the route: this request names the destination
+    client.dryQuote(request).then((r) => alive && setEstimate(r.quote.amountOutFormatted ?? null)).catch(() => {});
     return () => {
       alive = false;
     };
@@ -225,11 +229,11 @@ export function BrowserSwap(props: Props) {
           recipientType: "DESTINATION_CHAIN",
           deadline: new Date(Date.now() + 30 * 60_000),
         };
-        const r = await screenAndQuote(request, ["zec", outToken.blockchain]);
+        const r = await quotePrivately(request, [[plan.recipient, outToken.blockchain]]);
         if ("refused" in r) throw new Error(r.refused);
         const to = r.quote.quote.depositAddress;
         if (!to) throw new Error("The route gave no address to pay.");
-        setHop2({ quote: r.quote, txid: null, signed: r.signed, verified: r.verified });
+        setHop2({ quote: r.quote, txid: null });
         setWorking("Proving and sending the Zcash transaction. The proof takes about a minute in this tab. The route then needs about 10 min of confirmations.");
         const paid = await wallet.pay(to, BigInt(r.quote.quote.amountIn));
         setHop2((h) => (h ? { ...h, txid: paid.txid } : h));
@@ -247,7 +251,8 @@ export function BrowserSwap(props: Props) {
 
   const hop2Address = hop2?.txid ? (hop2.quote.quote.depositAddress ?? "") : "";
   const hop2Memo = hop2?.quote.quote.depositMemo;
-  const pollHop2 = useMemo(() => (hop2Address ? () => (api ? api.status(hop2Address, hop2Memo) : client.status(hop2Address, hop2Memo)) : null), [hop2Address, hop2Memo]);
+  // hop two's deposit address leads to the destination, so its status comes from the route too
+  const pollHop2 = useMemo(() => (hop2Address ? () => client.status(hop2Address, hop2Memo) : null), [hop2Address, hop2Memo]);
   const { value: status2, error: pollError2 } = usePoll<StatusResponse>(pollHop2, hop2Final);
   const state2 = stateOf(status2);
   useEffect(() => {
@@ -342,7 +347,7 @@ export function BrowserSwap(props: Props) {
           <VerifyStrip
             seed={seed}
             code={shortCode(seed)}
-            signedBy={props.signed && props.verified ? "Signed by Unpair" : "Signed by the route"}
+            signedBy={props.signed && props.verified ? "Signed by Unpair" : "Quote from the route"}
             {...(api && props.signed ? { onPhone: () => { setPhone(true); if (!parked && props.signed) void park(props.signed); } } : {})}
           />
           <div className="box"><span className="lbl">Send exactly</span><div className="big">{q.amountInFormatted} {props.token.symbol}</div></div>
