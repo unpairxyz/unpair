@@ -183,7 +183,7 @@ const KEEPER_CHIPS: Record<Custody, [string, string]> = {
 
 const MODES: { value: Mode; title: string; hint: string }[] = [
   { value: "fast", title: "Fast", hint: "Exact amount. About 5 minutes." },
-  { value: "quiet", title: "Quiet", hint: "Rounds the amount and waits a random time, up to 12 h. Harder to match." },
+  { value: "quiet", title: "Quiet", hint: "Rounds the amount and waits a random time, up to 12 h. Harder to match. With your own wallet, you pick when to send out." },
 ];
 
 function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: TokenInfo[]; hosted: HostedAvailability; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSendOut: () => void }) {
@@ -435,7 +435,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         onChange={(c) => { setCustody(c); setDest(""); setError(null); }}
         options={[{ value: "browser", title: "One-time wallet" }, { value: "server", title: "Unpair server" }, { value: "own", title: "My Zcash wallet" }]}
         warn={custody === "server"}
-        chips={KEEPER_CHIPS[custody]}
+        chips={mode === "quiet" ? [KEEPER_CHIPS[custody][0], custody === "own" ? "you pick when to send out" : "random wait, up to 12 h"] : KEEPER_CHIPS[custody]}
         note={custody === "server"
           ? "Our server holds the coins between the swaps, mixed with other people's coins. That is harder to trace on chain, but our server sees both ends. You can close the tab and come back with the link."
           : custody === "browser"

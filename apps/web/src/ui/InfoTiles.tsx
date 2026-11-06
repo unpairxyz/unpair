@@ -77,7 +77,7 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%", chips }: { f
         <div className="vsr">
           <h3><span className="hl">QUIET</span></h3>
           <Fish face="sleep" red={false} className="vsfish" width={70} />
-          <p><span className="hl">Common sizes, random exit time. Harder to match.</span></p>
+          <p><span className="hl">Rounded amount, random wait up to 12 h. Harder to match. With your own wallet, you pick when to send out.</span></p>
         </div>
         <div className="vs" aria-hidden="true"><b>VS</b></div>
       </div></section>
