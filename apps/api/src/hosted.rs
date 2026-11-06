@@ -174,16 +174,35 @@ pub struct Swap {
     pub estimate_out: Option<String>,
 }
 
-/// What hop two would send on if hop one delivered `received`: the capped
-/// amount minus the reserve, or the sum of the standard parts when the
-/// quiet-mode split is on. The dry estimate quotes this amount.
-pub fn hop2_estimate_basis(received: u64, split: bool, max_zat: u64) -> u64 {
+/// The payouts hop two would make if hop one delivered `received`, one
+/// amount per payout. The server cuts quiet swaps into standard parts when
+/// `split` is on. The one-time wallet sends one payout, cut to two digits
+/// in quiet mode (`round`), as the page does.
+pub fn hop2_estimate_parts(received: u64, split: bool, max_zat: u64, round: bool) -> Vec<u64> {
     let capped = received.min(max_zat);
     if split {
-        split_amount(capped, true).parts.iter().sum()
-    } else {
-        capped.saturating_sub(HOP2_FEE_RESERVE_ZAT)
+        return split_amount(capped, true).parts;
     }
+    let mut basis = capped.saturating_sub(HOP2_FEE_RESERVE_ZAT);
+    if round {
+        basis = round_down_two_digits(basis);
+    }
+    if basis == 0 {
+        Vec::new()
+    } else {
+        vec![basis]
+    }
+}
+
+/// `v` with all but its first two digits set to zero, as the page's
+/// `roundDownSignificant(v, 2)`.
+pub fn round_down_two_digits(v: u64) -> u64 {
+    let digits = v.checked_ilog10().map_or(1, |d| d + 1);
+    if digits <= 2 {
+        return v;
+    }
+    let step = 10u64.pow(digits - 2);
+    v / step * step
 }
 
 /// One payout of hop two. A fast swap has one part for the full amount; a
@@ -1048,16 +1067,27 @@ mod tests {
     }
 
     #[test]
-    fn estimate_basis_follows_the_payout_rule() {
+    fn estimate_parts_follow_the_keeper() {
         let max = 100_000_000;
-        assert_eq!(hop2_estimate_basis(1_000_000, false, max), 980_000);
-        assert_eq!(hop2_estimate_basis(493_020_000, false, max), 99_980_000);
-        let split = split_amount(37_000_000, true);
         assert_eq!(
-            hop2_estimate_basis(37_000_000, true, max),
-            split.parts.iter().sum::<u64>()
+            hop2_estimate_parts(1_000_000, false, max, false),
+            vec![980_000]
         );
-        assert_eq!(hop2_estimate_basis(10_000, false, max), 0);
+        assert_eq!(
+            hop2_estimate_parts(493_020_000, false, max, false),
+            vec![99_980_000]
+        );
+        assert_eq!(
+            hop2_estimate_parts(2_283_373, false, u64::MAX, true),
+            vec![2_200_000]
+        );
+        assert_eq!(
+            hop2_estimate_parts(37_000_000, true, max, false),
+            split_amount(37_000_000, true).parts
+        );
+        assert!(hop2_estimate_parts(10_000, false, max, true).is_empty());
+        assert_eq!(round_down_two_digits(99), 99);
+        assert_eq!(round_down_two_digits(1_234), 1_200);
     }
 
     #[test]

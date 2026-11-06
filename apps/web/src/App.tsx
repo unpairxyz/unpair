@@ -17,7 +17,9 @@ import {
   type AddressCheck,
   type HostedInfo,
   type HostedSwap,
+  type EstimateRequest,
   type Mode,
+  type RouteCost,
   type SignedQuote,
 } from "@unpair/client";
 import { BrowserSwap } from "./BrowserSwap";
@@ -156,16 +158,31 @@ function useZcashCheck(address: string): AddressCheck | null {
   return check;
 }
 
-function Details({ a, b, amount, out, minOut, eta, time, fee: feeLabel = feePercent }: { a: TokenInfo; b: TokenInfo; amount: number; out: number; minOut: number; eta: string; time: string; fee?: string }) {
-  const fee = client.previewFee(a, b, "EXACT_INPUT");
+const usd = (n: number): string => `$${Math.max(0, n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const share = (n: number, of: number): string => (of > 0 ? pct(Math.max(0, n) / of) : "?");
+
+/** The cost rows, from the route's quotes. Each line is a part of the total. */
+function costRows(c: RouteCost, custody: Custody): [string, string][] {
+  const rows: [string, string][] = [
+    ["Total cost", `${usd(c.total_usd)}, ${share(c.total_usd, c.in_usd)} of what you send`],
+    ["Unpair fee", usd(c.unpair_usd)],
+    ["1Click fee", usd(c.oneclick_usd)],
+  ];
+  if (c.payouts > 0) rows.push(["Zcash network fee", c.payouts > 1 ? `${usd(c.zcash_usd)}, ${c.payouts} payouts` : usd(c.zcash_usd)]);
+  if (c.kept_usd >= 0.005) rows.push([custody === "browser" ? "Left in the one-time wallet" : "Left in the server wallet", usd(c.kept_usd)]);
+  rows.push(["Price and gas", usd(c.route_usd)]);
+  return rows;
+}
+
+function Details({ a, b, amount, out, minOut, eta, time, cost, custody }: { a: TokenInfo; b: TokenInfo; amount: number; out: number; minOut: number; eta: string; time: string; cost: RouteCost | null; custody: Custody }) {
   return (
     <Summary
       rate={`1 ${a.symbol} ≈ ${amount > 0 ? fmt(out / amount) : "?"} ${b.symbol}`}
-      meta={`fee ${feeLabel} · ${eta}`}
+      meta={`${cost ? `cost ${share(cost.total_usd, cost.in_usd)}` : "cost …"} · ${eta}`}
       rows={[
         ["Route", `${a.symbol} · ${chainLabel(a.blockchain)} → ZEC pool → ${b.symbol} · ${chainLabel(b.blockchain)}`],
         ["Min. received", `${fmt(minOut)} ${b.symbol}`],
-        ["Fee", fee.text],
+        ...(cost ? costRows(cost, custody) : ([["Cost", "Shown when the route answers."]] as [string, string][])),
         ["Time", time],
       ]}
     />
@@ -261,8 +278,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   // While the route answers the number is blank. The price guess stands only where the route cannot answer.
   const destOk = destCheck?.ok ? dest.trim() : "";
   const refundOk = refundCheck?.ok ? refund.trim() : "";
-  const estimateKey = a && b && plan && api && !(custody === "own" && !destOk) ? [custody, mode, a.assetId, b.assetId, plan.send.toString(), destOk, refundOk, slippage].join("|") : null;
-  const [live, setLive] = useState<{ key: string; out: number | null } | null>(null);
+  const estimateKey = a && b && plan && api ? [custody, mode, a.assetId, b.assetId, plan.send.toString(), destOk, refundOk, slippage].join("|") : null;
+  const [live, setLive] = useState<{ key: string; out: number | null; cost: RouteCost | null } | null>(null);
   useEffect(() => {
     if (!estimateKey || !api || !a || !b || !plan) return;
     const key = estimateKey;
@@ -272,9 +289,9 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         .estimate({ mode, originAsset: a.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, recipient: destOk, refundTo: refundOk, slippageTolerance: slippage, ...(custody !== "own" ? { custody } : {}) })
         .then((e) => {
           const n = Number(e.estimate_out);
-          setLive({ key, out: Number.isFinite(n) && n > 0 ? n : null });
+          setLive({ key, out: Number.isFinite(n) && n > 0 ? n : null, cost: e.cost ?? null });
         })
-        .catch(() => setLive({ key, out: null }));
+        .catch(() => setLive({ key, out: null, cost: null }));
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -282,6 +299,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   const answered = live && live.key === estimateKey ? live : null;
   // null while the route is being asked
   const out: number | null = !estimateKey ? priceOut : answered ? (answered.out ?? priceOut) : null;
+  const cost = answered?.cost ?? null;
   const minOut = (out ?? 0) * (1 - slippage / 10_000);
 
   let label = "GET DEPOSIT ADDRESS";
@@ -435,7 +453,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         onChange={(c) => { setCustody(c); setDest(""); setError(null); }}
         options={[{ value: "browser", title: "One-time wallet" }, { value: "server", title: "Unpair server" }, { value: "own", title: "My Zcash wallet" }]}
         warn={custody === "server"}
-        chips={mode === "quiet" ? [KEEPER_CHIPS[custody][0], custody === "own" ? "you pick when to send out" : "random wait, up to 12 h"] : KEEPER_CHIPS[custody]}
+        chips={[cost ? `cost ${share(cost.total_usd, cost.in_usd)}` : KEEPER_CHIPS[custody][0], mode === "quiet" ? (custody === "own" ? "you pick when to send out" : "random wait, up to 12 h") : KEEPER_CHIPS[custody][1]]}
         note={custody === "server"
           ? "Our server holds the coins between the swaps, mixed with other people's coins. That is harder to trace on chain, but our server sees both ends. You can close the tab and come back with the link."
           : custody === "browser"
@@ -473,7 +491,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
       </AddressRows>
       <Hint>{hint}</Hint>
       {a && b && plan && !(same && custody === "own") && (
-        <Details a={a} b={b} amount={sendNum} out={out ?? 0} minOut={minOut} fee={KEEPER_CHIPS[custody][0]} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
+        <Details a={a} b={b} amount={sendNum} out={out ?? 0} minOut={minOut} cost={cost} custody={custody} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
       )}
       {small && a && b && plan && <p className="fine">Small swaps lose more to fixed network fees. The exact amount comes with the quote.</p>}
       {custody === "server" && hostedInfo && (
@@ -513,6 +531,29 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
 }
 
 /** Hop two from the user's own wallet: ZEC leaves the pool and arrives as another asset. */
+/** The route's own answer for a form: what you get and the full cost. Both null while it is asked or when it cannot answer. */
+function useEstimate(request: EstimateRequest | null): { out: number | null; cost: RouteCost | null } {
+  const key = request && api ? JSON.stringify(request) : null;
+  const [live, setLive] = useState<{ key: string; out: number | null; cost: RouteCost | null } | null>(null);
+  useEffect(() => {
+    if (!key || !api || !request) return;
+    const ask = api;
+    const t = setTimeout(() => {
+      ask
+        .estimate(request)
+        .then((e) => {
+          const n = Number(e.estimate_out);
+          setLive({ key, out: Number.isFinite(n) && n > 0 ? n : null, cost: e.cost ?? null });
+        })
+        .catch(() => setLive({ key, out: null, cost: null }));
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const answered = live && live.key === key ? live : null;
+  return { out: answered?.out ?? null, cost: answered?.cost ?? null };
+}
+
 function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSwapIn: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
   const [outId, setOutId] = useState<string | null>(null);
@@ -542,7 +583,6 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   const planError = planned && "error" in planned ? planned.error : null;
   const plan = planned && !("error" in planned) ? planned : null;
   const sendNum = plan ? Number(formatUnits(plan.send, ZEC_DECIMALS)) : 0;
-  const out = zec && b && b.price > 0 ? (sendNum * zec.price * (1 - feeFraction)) / b.price : 0;
   const destCheck = b && dest.trim() ? checkAddressForChain(dest, b.blockchain) : null;
   const outPickable = useMemo(() => tokens.filter((t) => t.blockchain !== "zec"), [tokens]);
   function pickOut(t: TokenInfo) {
@@ -551,6 +591,14 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   }
   const refundZ = useZcashCheck(refund);
   const refundVerdict = refundZ ? describeRefundCheck(refundZ) : null;
+  // the route's own quote once tokens and amount are in; the price guess until it answers
+  const est = useEstimate(
+    zec && b && plan && b.blockchain !== "zec"
+      ? { mode, originAsset: zec.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, recipient: destCheck?.ok ? dest.trim() : "", refundTo: refundVerdict?.ok ? refund.trim() : "", slippageTolerance: slippage }
+      : null,
+  );
+  const guess = zec && b && b.price > 0 ? (sendNum * zec.price * (1 - feeFraction)) / b.price : 0;
+  const out = est.out ?? guess;
 
   const goLabel = "SHOW THE ROUTE'S ADDRESS";
   let label = goLabel;
@@ -644,7 +692,7 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
       </AddressRows>
       <Hint>{hint}</Hint>
       {zec && b && plan && b.blockchain !== "zec" && (
-        <Details a={zec} b={b} amount={sendNum} out={out} minOut={out * (1 - slippage / 10_000)} eta="~8 min" time="about 8 min after your payment confirms" />
+        <Details a={zec} b={b} amount={sendNum} out={out} minOut={out * (1 - slippage / 10_000)} eta="~8 min" time="about 8 min after your payment confirms" cost={est.cost} custody="own" />
       )}
       <GoButton type="submit" disabled={!ready}>{busy ? "GETTING A QUOTE" : label}</GoButton>
       <TokenPicker open={picking} title="YOU RECEIVE" tokens={outPickable} value={outId} onClose={() => setPicking(false)} onPick={(t) => { pickOut(t); setPicking(false); }} />

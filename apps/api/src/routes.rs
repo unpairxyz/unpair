@@ -504,7 +504,7 @@ const EVM_CHAINS: &[&str] = &[
 /// without one: the form then waits for the real address.
 fn placeholder_address(chain: &str, near_account: &str) -> Option<String> {
     match chain {
-        "sol" | "fogo" => Some("11111111111111111111111111111111".into()),
+        "sol" | "fogo" => Some("1nc1nerator11111111111111111111111111111111".into()),
         "near" => Some(near_account.into()),
         c if EVM_CHAINS.contains(&c) => Some("0x1111111111111111111111111111111111111111".into()),
         _ => None,
@@ -518,6 +518,111 @@ pub struct Estimate {
     /// What hop two delivers; the ZEC itself when ZEC is the destination.
     /// None when the route gave no hop-two quote.
     pub estimate_out: Option<String>,
+    /// What the whole route costs, from the quotes. None when a quote is
+    /// missing a number it needs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<Cost>,
+}
+
+/// The cost of a route in US dollars at the route's own prices, taken from
+/// the quotes of both hops. `total_usd` is what you send less what you get;
+/// the other fields are its parts and add up to it.
+#[derive(Clone, Debug, Serialize)]
+pub struct Cost {
+    pub in_usd: f64,
+    pub out_usd: f64,
+    pub total_usd: f64,
+    /// Unpair's routing fee, as each quote's appFees say.
+    pub unpair_usd: f64,
+    /// 1Click's own fee, as each quote's appFees say.
+    pub oneclick_usd: f64,
+    /// The Zcash network fee of each hop-two payout.
+    pub zcash_usd: f64,
+    /// ZEC that stays in the Zcash wallet: the unused fee reserve, the
+    /// quiet-mode rest, a piece too small to send.
+    pub kept_usd: f64,
+    /// The rest: the route's price and each chain's gas.
+    pub route_usd: f64,
+    /// Number of hop-two payouts.
+    pub payouts: u64,
+}
+
+/// One quote's numbers for [`Cost`].
+#[derive(Clone, Debug)]
+struct HopNumbers {
+    in_usd: f64,
+    out_usd: f64,
+    amount_out: u64,
+    unpair_bps: u64,
+    oneclick_bps: u64,
+}
+
+fn hop_numbers(quote: &Value, fee_recipient: &str) -> Option<HopNumbers> {
+    let q = quote.get("quote")?;
+    let num = |k: &str| -> Option<f64> { q.get(k)?.as_str()?.parse().ok() };
+    let (mut unpair_bps, mut oneclick_bps) = (0, 0);
+    let fees = quote
+        .pointer("/quoteRequest/appFees")
+        .and_then(Value::as_array);
+    for f in fees.into_iter().flatten() {
+        let bps = f.get("fee").and_then(Value::as_u64).unwrap_or(0);
+        if f.get("recipient").and_then(Value::as_str) == Some(fee_recipient) {
+            unpair_bps += bps;
+        } else {
+            oneclick_bps += bps;
+        }
+    }
+    Some(HopNumbers {
+        in_usd: num("amountInUsd")?,
+        out_usd: num("amountOutUsd")?,
+        amount_out: q.get("amountOut")?.as_str()?.parse().ok()?,
+        unpair_bps,
+        oneclick_bps,
+    })
+}
+
+/// [`Cost`] of hop one alone (ZEC out), or of hop one and the hop-two
+/// quotes, each with the number of payouts it stands for.
+fn cost_of(hop1: &HopNumbers, hop2: &[(HopNumbers, u64)]) -> Cost {
+    let fee = |h: &HopNumbers, bps: u64| h.in_usd * bps as f64 / 10_000.0;
+    let mut unpair_usd = fee(hop1, hop1.unpair_bps);
+    let mut oneclick_usd = fee(hop1, hop1.oneclick_bps);
+    let (mut out_usd, mut zcash_usd, mut kept_usd, mut payouts) = (hop1.out_usd, 0.0, 0.0, 0);
+    if !hop2.is_empty() {
+        let n = |c: u64| c as f64;
+        out_usd = hop2.iter().map(|(h, c)| h.out_usd * n(*c)).sum();
+        unpair_usd += hop2
+            .iter()
+            .map(|(h, c)| fee(h, h.unpair_bps) * n(*c))
+            .sum::<f64>();
+        oneclick_usd += hop2
+            .iter()
+            .map(|(h, c)| fee(h, h.oneclick_bps) * n(*c))
+            .sum::<f64>();
+        payouts = hop2.iter().map(|(_, c)| c).sum();
+        let held =
+            (hop1.out_usd - hop2.iter().map(|(h, c)| h.in_usd * n(*c)).sum::<f64>()).max(0.0);
+        let usd_per_zat = if hop1.amount_out > 0 {
+            hop1.out_usd / hop1.amount_out as f64
+        } else {
+            0.0
+        };
+        let fee_zat = unpair_zcash::fees::payout_fee(1).into_u64() * payouts;
+        zcash_usd = (fee_zat as f64 * usd_per_zat).min(held);
+        kept_usd = held - zcash_usd;
+    }
+    let total_usd = hop1.in_usd - out_usd;
+    Cost {
+        in_usd: hop1.in_usd,
+        out_usd,
+        total_usd,
+        unpair_usd,
+        oneclick_usd,
+        zcash_usd,
+        kept_usd,
+        route_usd: total_usd - unpair_usd - oneclick_usd - zcash_usd - kept_usd,
+        payouts,
+    }
 }
 
 /// Dry quotes of both hops, nothing created and nothing screened: a dry
@@ -566,13 +671,29 @@ async fn estimate(
                 ApiError::BadRequest("address needed for an estimate on this chain".into())
             })
     };
+    if req.origin_asset == hosted::ZEC_ASSET {
+        if to_zec {
+            return Err(ApiError::BadRequest(
+                "pick a token other than ZEC to get".into(),
+            ));
+        }
+        let recipient = stand_in(&req.recipient, &req.destination_asset)?;
+        return estimate_send_out(&s, &req, slippage, recipient).await;
+    }
     let refund_to = stand_in(&req.refund_to, &req.origin_asset)?;
     let recipient = if to_zec {
         let t = req.recipient.trim();
-        if t.is_empty() || t.len() > 200 {
-            return Err(ApiError::BadRequest("recipient is required".into()));
+        if t.len() > 200 {
+            return Err(ApiError::BadRequest("an address is too long".into()));
         }
-        t.to_string()
+        if t.is_empty() {
+            // before the user types theirs, the hosted wallet's shielded stand-in
+            let h =
+                hosted_of(&s).map_err(|_| ApiError::BadRequest("recipient is required".into()))?;
+            h.stand_in().await?.shielded.clone()
+        } else {
+            t.to_string()
+        }
     } else {
         stand_in(&req.recipient, &req.destination_asset)?
     };
@@ -606,6 +727,7 @@ async fn estimate(
         })
     };
     let quote = s.oneclick.quote(body, fee()).await?;
+    let hop1 = hop_numbers(&quote, &s.config.fee_recipient);
     let q = quote.get("quote").cloned().unwrap_or(Value::Null);
     let str_of = |k: &str| q.get(k).and_then(Value::as_str).map(str::to_string);
     let amount_out: u64 = str_of("amountOut")
@@ -616,23 +738,30 @@ async fn estimate(
         return Ok(Json(Estimate {
             estimate_out: Some(zec_out.clone()),
             zec_out,
+            cost: hop1.map(|h| cost_of(&h, &[])),
         }));
     }
     let h = hosted_of(&s)?;
-    let (split, max_zat, fees) = match req.custody {
+    let quiet = req.mode == Mode::Quiet;
+    let (parts, fees) = match req.custody {
         Custody::Server => (
-            req.mode == Mode::Quiet && h.config.split,
-            h.config.max_zat,
+            hosted::hop2_estimate_parts(
+                amount_out,
+                quiet && h.config.split,
+                h.config.max_zat,
+                false,
+            ),
             None,
         ),
-        Custody::Browser => (false, u64::MAX, fee()),
+        Custody::Browser => (
+            hosted::hop2_estimate_parts(amount_out, false, u64::MAX, quiet),
+            fee(),
+        ),
     };
-    let estimate_out = hop2_estimate(
+    let hop2 = hop2_quotes(
         &s,
-        split,
-        max_zat,
+        &parts,
         &req.destination_asset,
-        amount_out,
         &zec_refund,
         &recipient,
         slippage,
@@ -640,15 +769,146 @@ async fn estimate(
         fees,
     )
     .await;
+    let estimate_out = hop2.as_deref().and_then(sum_out);
+    let cost = match (hop1, hop2.as_deref()) {
+        (Some(h1), Some(h2)) => h2
+            .iter()
+            .map(|(q, c)| hop_numbers(q, &s.config.fee_recipient).map(|n| (n, *c)))
+            .collect::<Option<Vec<_>>>()
+            .map(|h2| cost_of(&h1, &h2)),
+        _ => None,
+    };
     Ok(Json(Estimate {
         zec_out,
         estimate_out,
+        cost,
     }))
 }
 
-/// Start a hosted swap: screen, take a fresh landing, quote hop one to it.
-/// A dry hop-two quote at creation, so the page can say what the user gets
-/// before the deposit. Hop two carries no routing fee. Never fails the create.
+/// Send out: one hop from the user's own Zcash wallet, ZEC to the asset
+/// they get. The refund goes to the hosted wallet's stand-in until the user
+/// types theirs; a dry quote sends nothing.
+async fn estimate_send_out(
+    s: &AppState,
+    req: &EstimateBody,
+    slippage: u32,
+    recipient: String,
+) -> Result<Json<Estimate>, ApiError> {
+    let typed = req.refund_to.trim();
+    if typed.len() > 200 {
+        return Err(ApiError::BadRequest("an address is too long".into()));
+    }
+    let refund_to = if typed.is_empty() {
+        hosted_of(s)
+            .map_err(|_| ApiError::BadRequest("refund address needed".into()))?
+            .stand_in()
+            .await?
+            .transparent
+            .clone()
+    } else {
+        typed.to_string()
+    };
+    let body = serde_json::json!({
+        "dry": true,
+        "swapType": "EXACT_INPUT",
+        "slippageTolerance": slippage,
+        "originAsset": hosted::ZEC_ASSET,
+        "depositType": "ORIGIN_CHAIN",
+        "destinationAsset": req.destination_asset,
+        "amount": req.amount,
+        "refundTo": refund_to,
+        "refundType": "ORIGIN_CHAIN",
+        "recipient": recipient,
+        "recipientType": "DESTINATION_CHAIN",
+        "deadline": hosted::rfc3339(now_unix().saturating_add(15 * 60)),
+    });
+    let fees = (s.config.fee_bps > 0).then(|| {
+        vec![AppFee {
+            recipient: s.config.fee_recipient.clone(),
+            fee: s.config.fee_bps,
+        }]
+    });
+    let quote = s.oneclick.quote(body, fees).await?;
+    Ok(Json(Estimate {
+        zec_out: zec(req.amount.parse().unwrap_or(0)),
+        estimate_out: quote
+            .pointer("/quote/amountOutFormatted")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        cost: hop_numbers(&quote, &s.config.fee_recipient).map(|h| cost_of(&h, &[])),
+    }))
+}
+
+/// What a set of hop-two quotes delivers in all, as a decimal string.
+fn sum_out(quotes: &[(Value, u64)]) -> Option<String> {
+    let formatted = |q: &Value| {
+        q.pointer("/quote/amountOutFormatted")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    if let [(q, 1)] = quotes {
+        return formatted(q);
+    }
+    let mut total = 0.0;
+    for (q, c) in quotes {
+        total += formatted(q)?.parse::<f64>().ok()? * *c as f64;
+    }
+    let s = format!("{total:.8}");
+    Some(s.trim_end_matches('0').trim_end_matches('.').to_string())
+}
+
+/// Dry hop-two quotes, one per distinct payout amount, each with how many
+/// payouts it stands for. None when there is nothing to send or the route
+/// refuses one of them. Hop two on the server carries no routing fee.
+#[allow(clippy::too_many_arguments)]
+async fn hop2_quotes(
+    s: &AppState,
+    parts: &[u64],
+    destination_asset: &str,
+    refund_to: &str,
+    recipient: &str,
+    slippage: u32,
+    now: u64,
+    fees: Option<Vec<AppFee>>,
+) -> Option<Vec<(Value, u64)>> {
+    let mut sizes: Vec<(u64, u64)> = Vec::new();
+    for &p in parts.iter().filter(|&&p| p > 0) {
+        match sizes.iter_mut().find(|(a, _)| *a == p) {
+            Some((_, c)) => *c += 1,
+            None => sizes.push((p, 1)),
+        }
+    }
+    if sizes.is_empty() {
+        return None;
+    }
+    let mut quotes = Vec::with_capacity(sizes.len());
+    for (amount, count) in sizes {
+        let body = serde_json::json!({
+            "dry": true,
+            "swapType": "EXACT_INPUT",
+            "slippageTolerance": slippage,
+            "originAsset": hosted::ZEC_ASSET,
+            "depositType": "ORIGIN_CHAIN",
+            "destinationAsset": destination_asset,
+            "amount": amount.to_string(),
+            "refundTo": refund_to,
+            "refundType": "ORIGIN_CHAIN",
+            "recipient": recipient,
+            "recipientType": "DESTINATION_CHAIN",
+            "deadline": hosted::rfc3339(now.saturating_add(15 * 60)),
+        });
+        match s.oneclick.quote(body, fees.clone()).await {
+            Ok(q) => quotes.push((q, count)),
+            Err(e) => {
+                tracing::info!(error = %e, "hop two estimate unavailable");
+                return None;
+            }
+        }
+    }
+    Some(quotes)
+}
+
+/// What hop two delivers in all, from [`hop2_quotes`]. Never fails the create.
 #[allow(clippy::too_many_arguments)]
 async fn hop2_estimate(
     s: &AppState,
@@ -662,37 +922,23 @@ async fn hop2_estimate(
     now: u64,
     fees: Option<Vec<AppFee>>,
 ) -> Option<String> {
-    let basis = hosted::hop2_estimate_basis(amount_out, split, max_zat);
-    if basis == 0 {
-        return None;
-    }
-    let body = serde_json::json!({
-        "dry": true,
-        "swapType": "EXACT_INPUT",
-        "slippageTolerance": slippage,
-        "originAsset": hosted::ZEC_ASSET,
-        "depositType": "ORIGIN_CHAIN",
-        "destinationAsset": destination_asset,
-        "amount": basis.to_string(),
-        "refundTo": refund_to,
-        "refundType": "ORIGIN_CHAIN",
-        "recipient": recipient,
-        "recipientType": "DESTINATION_CHAIN",
-        "deadline": hosted::rfc3339(now.saturating_add(15 * 60)),
-    });
-    match s.oneclick.quote(body, fees).await {
-        Ok(q) => q
-            .get("quote")
-            .and_then(|q| q.get("amountOutFormatted"))
-            .and_then(Value::as_str)
-            .map(str::to_string),
-        Err(e) => {
-            tracing::info!(error = %e, "hop two estimate unavailable");
-            None
-        }
-    }
+    let parts = hosted::hop2_estimate_parts(amount_out, split, max_zat, false);
+    let quotes = hop2_quotes(
+        s,
+        &parts,
+        destination_asset,
+        refund_to,
+        recipient,
+        slippage,
+        now,
+        fees,
+    )
+    .await?;
+    sum_out(&quotes)
 }
 
+/// Start a hosted swap: screen, take a fresh landing, quote hop one to it.
+/// A dry hop-two quote at creation says what the user gets before the deposit.
 async fn hosted_create(
     State(s): State<Shared>,
     headers: HeaderMap,
@@ -1539,5 +1785,76 @@ mod tests {
         assert_eq!(zec(100_000_000), "1");
         assert_eq!(zec(120_000), "0.0012");
         assert_eq!(zec(0), "0");
+    }
+}
+
+#[cfg(test)]
+mod cost_tests {
+    use super::*;
+
+    fn quote(in_usd: &str, out_usd: &str, out: &str, fees: Value) -> Value {
+        serde_json::json!({
+            "quote": {"amountInUsd": in_usd, "amountOutUsd": out_usd, "amountOut": out},
+            "quoteRequest": {"appFees": fees},
+        })
+    }
+
+    #[test]
+    fn cost_parts_add_up_to_the_total() {
+        let fees = serde_json::json!([{"recipient": "unpair.near", "fee": 25}, {"recipient": "abc", "fee": 25}]);
+        let h1 = hop_numbers(&quote("30", "29.4", "2283373", fees.clone()), "unpair.near").unwrap();
+        let h2 = hop_numbers(&quote("29.1", "28.8", "28800000", fees), "unpair.near").unwrap();
+        let c = cost_of(&h1, &[(h2, 1)]);
+        assert!((c.total_usd - 1.2).abs() < 1e-9);
+        assert!((c.unpair_usd - (0.075 + 0.07275)).abs() < 1e-9);
+        assert!((c.oneclick_usd - c.unpair_usd).abs() < 1e-9);
+        let parts = c.unpair_usd + c.oneclick_usd + c.zcash_usd + c.kept_usd + c.route_usd;
+        assert!((parts - c.total_usd).abs() < 1e-9);
+        assert!(c.zcash_usd > 0.0 && c.kept_usd >= 0.0);
+        assert_eq!(c.payouts, 1);
+    }
+
+    #[test]
+    fn hop_one_alone_has_no_zcash_fee() {
+        let h1 = hop_numbers(
+            &quote("30", "29.4", "2283373", serde_json::json!([])),
+            "unpair.near",
+        )
+        .unwrap();
+        let c = cost_of(&h1, &[]);
+        assert!((c.route_usd - 0.6).abs() < 1e-9);
+        assert_eq!((c.zcash_usd, c.kept_usd, c.payouts), (0.0, 0.0, 0));
+    }
+
+    #[test]
+    fn pieces_count_each_payout() {
+        let h1 = hop_numbers(
+            &quote("500", "490", "37000000", serde_json::json!([])),
+            "unpair.near",
+        )
+        .unwrap();
+        let big = hop_numbers(
+            &quote("265", "263", "263000000", serde_json::json!([])),
+            "unpair.near",
+        )
+        .unwrap();
+        let small = hop_numbers(
+            &quote("66", "65", "65000000", serde_json::json!([])),
+            "unpair.near",
+        )
+        .unwrap();
+        let c = cost_of(&h1, &[(big, 1), (small, 3)]);
+        assert_eq!(c.payouts, 4);
+        assert!((c.out_usd - (263.0 + 195.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn several_quotes_sum_their_output() {
+        let q = |f: &str| serde_json::json!({"quote": {"amountOutFormatted": f}});
+        assert_eq!(sum_out(&[(q("1.5"), 1)]).as_deref(), Some("1.5"));
+        assert_eq!(
+            sum_out(&[(q("1.5"), 2), (q("0.25"), 1)]).as_deref(),
+            Some("3.25")
+        );
     }
 }
