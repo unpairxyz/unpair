@@ -198,9 +198,9 @@ const pct = (f: number): string => `${(f * 100).toLocaleString("en-US", { maximu
 // fee and time for each keeper, shown as two chips: one-time wallet pays the Unpair fee on both hops,
 // the server on hop one only, your own wallet now and again if you send out later
 const KEEPER_CHIPS: Record<Custody, [string, string]> = {
-  browser: [`about ${pct(feeFraction * 2)}`, "about 40 min, tab open"],
-  server: [feePercent, "about 30 min"],
-  own: [`${feePercent} now`, "about 10 min"],
+  browser: [`about ${pct(feeFraction * 2)}`, "about 20 min, tab open"],
+  server: [feePercent, "about 20 min"],
+  own: [`${feePercent} now`, "about 5 min"],
 };
 
 const MODES: { value: Mode; title: string; hint: string }[] = [
@@ -497,7 +497,7 @@ function SwapIn({ tokens, hosted, listed, onStage, onQuiet, onSendOut }: { token
       </AddressRows>
       <Hint>{hint}</Hint>
       {a && b && plan && !(same && custody === "own") && (
-        <Details a={a} b={b} amount={sendNum} out={out ?? 0} minOut={minOut} cost={cost} custody={custody} eta={mode === "quiet" ? "random wait" : custody === "browser" ? "~40 min" : custody === "server" ? "~30 min" : "~10 min"} time={mode === "quiet" ? (custody === "own" ? "about 10 min in. Wait a while before you send out, up to 12 h" : "about 30 min in, then a random wait up to 12 h") : custody === "browser" ? "about 40 min: the tab proves hop two" : custody === "server" ? "about 30 min for both hops" : "about 10 min"} />
+        <Details a={a} b={b} amount={sendNum} out={out ?? 0} minOut={minOut} cost={cost} custody={custody} eta={mode === "quiet" ? "random wait" : custody === "own" ? "~5 min" : "~20 min"} time={mode === "quiet" ? (custody === "own" ? "about 5 min in. Wait a while before you send out, up to 12 h" : "about 10 min in, then a random wait up to 12 h, then about 10 min out") : custody === "browser" ? "about 20 min: the tab proves hop two" : custody === "server" ? "about 20 min for both hops" : "about 5 min"} />
       )}
       {small && a && b && plan && <p className="fine">Small swaps lose more to fixed network fees. The exact amount comes with the quote.</p>}
       {custody === "server" && hostedInfo && (
@@ -849,7 +849,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
       <div className="wtitle"><b>IN PROGRESS</b><span className="code">{shortCode(seed)}</span></div>
       <StatusStrip current={strip} texts={direction === "in"
         ? { 0: depositWait(token.blockchain), 1: "The route swaps it into ZEC and pays your address.", 2: `Lands in your wallet. ${POOL_WAIT}`, 3: "Yours. Send out from your wallet later." }
-        : { 0: "Waits for your Zcash payment to confirm.", 1: "Credited about 10 min after it confirms.", 2: "The route fills your swap.", 3: "Your asset arrives at your address." }} />
+        : { 0: "Waits for your Zcash payment to confirm.", 1: "Credited about 8 min after it confirms.", 2: "The route fills your swap.", 3: "Your asset arrives at your address." }} />
       <Facts rows={[
         ["Send", `${q.amountInFormatted} ${inSym}`, true],
         ["Get about", `${q.amountOutFormatted} ${outSym}`, true],

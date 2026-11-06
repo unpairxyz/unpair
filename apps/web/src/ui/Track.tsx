@@ -81,15 +81,15 @@ export function useEndTime(done: boolean, known: number | null = null): number |
 /** What the deposit step waits for on this chain, with the time measured today. */
 export function depositWait(chain: string): string {
   const name = chainLabel(chain);
-  if (chain === "zec") return "Needs Zcash confirmations. Credited in about 10 min.";
+  if (chain === "zec") return "Needs Zcash confirmations. Credited in about 8 min.";
   if (chainKind(chain) === "evm") return `Needs ${name} confirmations. Credited in a few min.`;
   return `Needs ${name} confirmations, then the route credits it.`;
 }
 
-/** A received note can be spent after ten confirmations. */
-export const POOL_WAIT = "Spendable after 10 confirmations, about 12 min.";
-/** The route credits a Zcash payment about ten minutes after it confirms. */
-export const OUT_WAIT = "Credited about 10 min after the Zcash payment confirms, then paid out.";
+/** A received note can be spent after ten confirmations; Zcash blocks come every 30 s since NU7. */
+export const POOL_WAIT = "Spendable after 10 confirmations, about 5 min.";
+/** The route credits a Zcash payment about eight minutes after it confirms, by its own quote estimate. */
+export const OUT_WAIT = "Credited about 8 min after the Zcash payment confirms, then paid out.";
 
 /** The estimate under "Send exactly": what arrives after both hops, from a dry quote of hop two. */
 export function YouGet({ value }: { value: string }) {

@@ -234,7 +234,7 @@ export function BrowserSwap(props: Props) {
         const to = r.quote.quote.depositAddress;
         if (!to) throw new Error("The route gave no address to pay.");
         setHop2({ quote: r.quote, txid: null });
-        setWorking("Proving and sending the Zcash transaction. The proof takes about a minute in this tab. The route then needs about 10 min of confirmations.");
+        setWorking("Proving and sending the Zcash transaction. The proof takes about a minute in this tab. The route then needs about 8 min of confirmations.");
         const paid = await wallet.pay(to, BigInt(r.quote.quote.amountIn));
         setHop2((h) => (h ? { ...h, txid: paid.txid } : h));
         setWorking(null);
