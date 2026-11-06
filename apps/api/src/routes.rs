@@ -21,7 +21,7 @@ use crate::handoff::{Handoff, PutError};
 use crate::hosted::{self, new_id, parse_rfc3339, Mode, State as SwapState, Store, Swap, SwapView};
 use crate::oneclick::{addresses_to_screen, chain_of_asset, AppFee, OneClick};
 use crate::ratelimit::RateLimit;
-use crate::screening::{geofence, Screener, Verdict};
+use crate::screening::{geofence, Screener, Verdict, LIST_HASH};
 use crate::sign::QuoteSigner;
 use crate::tokens::TokenCache;
 use crate::wallet_worker::{now_unix, LandingInfo, Report, WalletHandle};
@@ -105,6 +105,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/pubkey", get(pubkey))
         .route("/v1/tokens", get(tokens))
         .route("/v1/screen", post(screen))
+        .route("/v1/screen/list", get(screen_list))
         .route("/v1/quote", post(quote))
         .route("/v1/estimate", post(estimate))
         .route("/v1/status/{deposit_address}", get(status))
@@ -257,6 +258,42 @@ async fn screen(
     Ok(Json(ScreenResponse {
         allowed: v.allowed,
         reason: v.reason,
+    }))
+}
+
+#[derive(Serialize)]
+struct ScreenList {
+    /// False in a region Unpair does not serve. The page then stops.
+    allowed: bool,
+    reason: Option<String>,
+    /// How each entry is made from an address.
+    hash: &'static str,
+    /// Hashes of every listed address, sorted. Null when a vendor screens each
+    /// address: the page then asks `/v1/screen`.
+    entries: Option<Vec<String>>,
+}
+
+/// The whole denylist, hashed. Every caller gets the same answer, so asking
+/// says nothing about the address the page checks against it.
+async fn screen_list(
+    State(s): State<Shared>,
+    headers: HeaderMap,
+) -> Result<Json<ScreenList>, ApiError> {
+    rate_limit(&s, &headers)?;
+    let geo = geofence(&s.config.geofence, &headers);
+    if !geo.allowed {
+        return Ok(Json(ScreenList {
+            allowed: false,
+            reason: geo.reason,
+            hash: LIST_HASH,
+            entries: Some(Vec::new()),
+        }));
+    }
+    Ok(Json(ScreenList {
+        allowed: true,
+        reason: None,
+        hash: LIST_HASH,
+        entries: s.screener.list(),
     }))
 }
 
@@ -499,16 +536,46 @@ const EVM_CHAINS: &[&str] = &[
 ];
 
 /// A well-formed address on `chain` for a dry quote asked before the user
-/// has typed theirs. A dry quote checks the form of an address and sends
-/// nothing, so the stand-in never receives anything. None for a chain
-/// without one: the form then waits for the real address.
+/// has typed theirs, or that the page never sends: the one-time wallet and
+/// Send out keep the destination from this server. A dry quote checks the
+/// form of an address and sends nothing, so the stand-in never receives
+/// anything. Most are the chain's all-zero address, which no key spends. Each
+/// was accepted by 1Click in a dry quote on 6 November 2026. None for a chain
+/// without one: the form then shows the price guess.
 fn placeholder_address(chain: &str, near_account: &str) -> Option<String> {
-    match chain {
-        "sol" | "fogo" => Some("1nc1nerator11111111111111111111111111111111".into()),
-        "near" => Some(near_account.into()),
-        c if EVM_CHAINS.contains(&c) => Some("0x1111111111111111111111111111111111111111".into()),
-        _ => None,
-    }
+    let a = match chain {
+        "sol" | "fogo" => "1nc1nerator11111111111111111111111111111111",
+        "near" => near_account,
+        "zec" => "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs",
+        "btc" => "1111111111111111111114oLvT2",
+        "bch" => "bitcoincash:qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqfnhks603",
+        "ltc" => "LKDxGDJq5fF4FohAB8zJH24mDDNHDNtqsE",
+        "doge" => "D596YFweJQuHY1BbjazZYmAbt8jJPbKehC",
+        "dash" => "XagqqFetxiDb9wbartKDrXgnqLah6SqX2S",
+        "tron" => "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+        "xrp" => "rrrrrrrrrrrrrrrrrrrrrhoLvTp",
+        "ton" => "EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c",
+        "sui" | "aptos" | "movement" | "starknet" => {
+            "0x0000000000000000000000000000000000000000000000000000000000000001"
+        }
+        c if EVM_CHAINS.contains(&c) => "0x1111111111111111111111111111111111111111",
+        _ => return None,
+    };
+    Some(a.into())
+}
+
+/// The chain an asset is on. The route's token list says it for every asset;
+/// the asset id alone says it only for some.
+async fn chain_of(s: &AppState, asset: &str) -> Option<String> {
+    let listed = s.tokens.get(&s.oneclick).await.ok().and_then(|list| {
+        list.as_array()?
+            .iter()
+            .find(|t| t["assetId"] == asset)?
+            .get("blockchain")?
+            .as_str()
+            .map(str::to_string)
+    });
+    listed.or_else(|| chain_of_asset(asset))
 }
 
 #[derive(Serialize)]
@@ -657,7 +724,18 @@ async fn estimate(
     if !to_zec {
         check_destination(&req.destination_asset)?;
     }
-    let stand_in = |typed: &str, asset: &str| -> Result<String, ApiError> {
+    // the token list is read only for an address left empty
+    let dest_chain = if req.recipient.trim().is_empty() && !to_zec {
+        chain_of(&s, &req.destination_asset).await
+    } else {
+        None
+    };
+    let origin_chain = if req.refund_to.trim().is_empty() {
+        chain_of(&s, &req.origin_asset).await
+    } else {
+        None
+    };
+    let stand_in = |typed: &str, chain: &Option<String>| -> Result<String, ApiError> {
         let typed = typed.trim();
         if typed.len() > 200 {
             return Err(ApiError::BadRequest("an address is too long".into()));
@@ -665,8 +743,9 @@ async fn estimate(
         if !typed.is_empty() {
             return Ok(typed.to_string());
         }
-        chain_of_asset(asset)
-            .and_then(|c| placeholder_address(&c, &s.config.fee_recipient))
+        chain
+            .as_deref()
+            .and_then(|c| placeholder_address(c, &s.config.fee_recipient))
             .ok_or_else(|| {
                 ApiError::BadRequest("address needed for an estimate on this chain".into())
             })
@@ -677,10 +756,10 @@ async fn estimate(
                 "pick a token other than ZEC to get".into(),
             ));
         }
-        let recipient = stand_in(&req.recipient, &req.destination_asset)?;
+        let recipient = stand_in(&req.recipient, &dest_chain)?;
         return estimate_send_out(&s, &req, slippage, recipient).await;
     }
-    let refund_to = stand_in(&req.refund_to, &req.origin_asset)?;
+    let refund_to = stand_in(&req.refund_to, &origin_chain)?;
     let recipient = if to_zec {
         let t = req.recipient.trim();
         if t.len() > 200 {
@@ -695,7 +774,7 @@ async fn estimate(
             t.to_string()
         }
     } else {
-        stand_in(&req.recipient, &req.destination_asset)?
+        stand_in(&req.recipient, &dest_chain)?
     };
     let (zec_recipient, zec_refund) = if to_zec {
         (recipient.clone(), String::new())
@@ -799,12 +878,8 @@ async fn estimate_send_out(
         return Err(ApiError::BadRequest("an address is too long".into()));
     }
     let refund_to = if typed.is_empty() {
-        hosted_of(s)
-            .map_err(|_| ApiError::BadRequest("refund address needed".into()))?
-            .stand_in()
-            .await?
-            .transparent
-            .clone()
+        // a stand-in, so this works without the hosted wallet too
+        placeholder_address("zec", &s.config.fee_recipient).unwrap_or_default()
     } else {
         typed.to_string()
     };
@@ -1512,6 +1587,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn screen_list_applies_geofence_and_is_never_cached() {
+        let app = build_app(test_config());
+        let get = |country: &'static str| {
+            Request::get("/v1/screen/list")
+                .header("cf-ipcountry", country)
+                .body(Body::empty())
+                .unwrap()
+        };
+        let r = app.clone().oneshot(get("KP")).await.unwrap();
+        assert_eq!(r.headers().get(header::CACHE_CONTROL).unwrap(), "no-store");
+        let j = body_json(r).await;
+        assert_eq!(j["allowed"], false);
+        assert_eq!(j["reason"], "Unpair is not available in your region.");
+
+        let j = body_json(app.oneshot(get("AM")).await.unwrap()).await;
+        assert_eq!(j["allowed"], true);
+        assert_eq!(j["hash"], LIST_HASH);
+        assert_eq!(j["entries"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn quote_is_refused_in_blocked_region_before_any_upstream_call() {
         let app = build_app(test_config());
         let req = Request::post("/v1/quote")
@@ -1557,7 +1653,7 @@ mod tests {
             .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
         // no address typed and no stand-in for the chain: refused before any upstream call
-        let mut j = body("1000", "nep141:btc.omft.near");
+        let mut j = body("1000", "nep141:aleo.omft.near");
         j["recipient"] = Value::String(String::new());
         let r = app.clone().oneshot(post(j)).await.unwrap();
         assert_eq!(r.status(), StatusCode::BAD_REQUEST);
@@ -1566,7 +1662,16 @@ mod tests {
             placeholder_address("near", "unpair.near").as_deref(),
             Some("unpair.near")
         );
-        assert!(placeholder_address("btc", "unpair.near").is_none());
+        for chain in [
+            "zec", "btc", "bch", "ltc", "doge", "dash", "tron", "xrp", "ton", "sui", "aptos",
+            "starknet", "avax",
+        ] {
+            assert!(
+                placeholder_address(chain, "unpair.near").is_some(),
+                "{chain}"
+            );
+        }
+        assert!(placeholder_address("aleo", "unpair.near").is_none());
         // a field the page does not send is refused
         let mut j = body("1000", "nep141:usdc.near");
         j["appFees"] = serde_json::json!([]);

@@ -11,8 +11,10 @@
 #   VITE_API_PUBKEY       hex key from GET /v1/pubkey on that API
 #   VITE_LWD_GRPC_WEB_URL gRPC-web proxy for the browser wallet, or empty
 #   VITE_ZCASH_NETWORK    main or test
-# and the optional secret VITE_ONECLICK_JWT, the 1Click partner key. It ends
-# up in the public bundle like every VITE_ value; a secret keeps it out of logs.
+# The 1Click partner key stays on the API server. The page never gets it:
+# every VITE_ value ends up in the public bundle. Live quotes without the key
+# carried the same fee (packages/sdk/src/fees.ts), and the page refuses one
+# that does not.
 name: Build
 
 on:
@@ -73,7 +75,6 @@ jobs:
           VITE_API_PUBKEY: ${{ vars.VITE_API_PUBKEY }}
           VITE_LWD_GRPC_WEB_URL: ${{ vars.VITE_LWD_GRPC_WEB_URL }}
           VITE_ZCASH_NETWORK: ${{ vars.VITE_ZCASH_NETWORK }}
-          VITE_ONECLICK_JWT: ${{ secrets.VITE_ONECLICK_JWT }}
         run: pnpm --filter @unpair/web build
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

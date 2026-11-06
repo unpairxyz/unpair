@@ -146,6 +146,17 @@ export interface ScreenVerdict {
   reason: string | null;
 }
 
+/** The whole denylist, hashed, for screening on the page. See screening.ts. */
+export interface ScreenList {
+  /** False in a region Unpair does not serve. */
+  allowed: boolean;
+  reason: string | null;
+  /** How each entry is made from an address. */
+  hash: string;
+  /** Null when the server screens each address with a vendor and has no list to give. */
+  entries: string[] | null;
+}
+
 export class ApiError extends Error {
   override readonly name = "ApiError";
   constructor(
@@ -236,6 +247,11 @@ export class ApiClient {
 
   screen(address: string, chain: string): Promise<ScreenVerdict> {
     return this.call("POST", "/v1/screen", { address, chain });
+  }
+
+  /** The hashed denylist. Every caller gets the same answer, so the address checked against it never leaves the page. */
+  screenList(): Promise<ScreenList> {
+    return this.call("GET", "/v1/screen/list");
   }
 
   quote(request: Omit<QuoteRequest, "appFees">): Promise<SignedQuote> {

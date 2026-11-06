@@ -23,7 +23,7 @@ import {
   type SignedQuote,
 } from "@unpair/client";
 import { BrowserSwap } from "./BrowserSwap";
-import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, screenAndQuote, shortCode, usePoll } from "./core";
+import { SLIPPAGE_BPS, api, client, config, describeError, feeFraction, feePercent, fmt, markSeed, quotePrivately, screenAndQuote, shortCode, usePoll } from "./core";
 import { BrowserWallet, parseRecovery, type Recovery } from "./wallet/browserWallet";
 import type { Landing } from "./wallet/types";
 import { HOP2_FEE_RESERVE_FLOOR_ZAT } from "./wallet/fees";
@@ -76,6 +76,8 @@ export function App() {
   const [tokens, setTokens] = useState<TokenInfo[]>([]);
   const [tokensError, setTokensError] = useState<string | null>(null);
   const [hosted, setHosted] = useState<HostedAvailability>(api ? { known: false } : { known: true, info: null });
+  // the page can screen on its own only when the API hands out its list; a vendor's list it cannot
+  const [listed, setListed] = useState(false);
   const [view, setView] = useState<View>("in");
   const [stage, setStage] = useState<HeroStage>("form");
   const [quiet, setQuiet] = useState(false);
@@ -97,7 +99,10 @@ export function App() {
     if (api) {
       api
         .config()
-        .then((c) => setHosted({ known: true, info: c.hosted ?? null }))
+        .then((c) => {
+          setHosted({ known: true, info: c.hosted ?? null });
+          setListed(c.screening !== "http");
+        })
         .catch(() => setHosted({ known: true, info: null }));
     }
   }, []);
@@ -123,9 +128,9 @@ export function App() {
           ) : resume.parked && api ? (
             <ParkedQuote id={resume.parked} tokens={tokens} onStage={setStage} onDone={leaveResume} />
           ) : view === "in" ? (
-            <SwapIn tokens={tokens} hosted={hosted} onStage={setStage} onQuiet={setQuiet} onSendOut={() => setView("out")} />
+            <SwapIn tokens={tokens} hosted={hosted} listed={listed} onStage={setStage} onQuiet={setQuiet} onSendOut={() => setView("out")} />
           ) : (
-            <SendOut tokens={tokens} onStage={setStage} onQuiet={setQuiet} onSwapIn={() => setView("in")} />
+            <SendOut tokens={tokens} listed={listed} onStage={setStage} onQuiet={setQuiet} onSwapIn={() => setView("in")} />
           )}
         </WidgetPanel>
         <Story />
@@ -203,7 +208,7 @@ const MODES: { value: Mode; title: string; hint: string }[] = [
   { value: "quiet", title: "Quiet", hint: "Rounds the amount and waits a random time, up to 12 h. Harder to match. With your own wallet, you pick when to send out." },
 ];
 
-function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: TokenInfo[]; hosted: HostedAvailability; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSendOut: () => void }) {
+function SwapIn({ tokens, hosted, listed, onStage, onQuiet, onSendOut }: { tokens: TokenInfo[]; hosted: HostedAvailability; listed: boolean; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSendOut: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
   // one-time wallet first; a page built without a Zcash wallet server starts on your own wallet
   const [custody, setCustody] = useState<Custody>(config.lwdGrpcWebUrl ? "browser" : "own");
@@ -276,7 +281,8 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
   // As soon as the tokens and the amount are in, the route itself says what you get: the same dry quotes the deposit
   // screen shows. Addresses go along once they are valid; before that the server puts a stand-in on the chain.
   // While the route answers the number is blank. The price guess stands only where the route cannot answer.
-  const destOk = destCheck?.ok ? dest.trim() : "";
+  // The one-time wallet never sends its destination to the server, not even here: the stand-in prices the same.
+  const destOk = destCheck?.ok && custody !== "browser" ? dest.trim() : "";
   const refundOk = refundCheck?.ok ? refund.trim() : "";
   const estimateKey = a && b && plan && api ? [custody, mode, a.assetId, b.assetId, plan.send.toString(), destOk, refundOk, slippage].join("|") : null;
   const [live, setLive] = useState<{ key: string; out: number | null; cost: RouteCost | null } | null>(null);
@@ -457,7 +463,7 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         note={custody === "server"
           ? "Our server holds the coins between the swaps, mixed with other people's coins. That is harder to trace on chain, but our server sees both ends. You can close the tab and come back with the link."
           : custody === "browser"
-            ? "A fresh Zcash wallet, made in this tab for this one swap. It pays out itself. Unpair never holds your coins in this mode. Keep the tab open, or save the recovery file."
+            ? `A fresh Zcash wallet, made in this tab for this one swap. It pays out itself. Unpair never holds your coins in this mode.${listed ? " Our API never gets the address they go to." : ""} Keep the tab open, or save the recovery file.`
             : "ZEC lands in your own Zcash wallet app, shielded. Unpair never holds your coins in this mode. Move it on later with Send out."}
       />
       <Legs
@@ -501,11 +507,14 @@ function SwapIn({ tokens, hosted, onStage, onQuiet, onSendOut }: { tokens: Token
         </p>
       )}
       {custody === "browser" && !browserOff && (
-        <p className="fine">The one-time wallet reads the chain through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which sees this tab's IP.</p>
+        <p className="fine">
+          Hop two goes from this tab to the route directly.{listed && " The tab checks your address against our screening list itself."} The one-time wallet reads the chain and
+          sends hop two through {new URL(config.lwdGrpcWebUrl ?? "https://x").host}, which we run. It sees this tab's IP and the route's address that hop two pays. Use Tor Browser to keep the two hops apart.
+        </p>
       )}
       <GoButton type="submit" disabled={!ready}>{busy ? busyText : label}</GoButton>
       <p className="fine">
-        {api ? "Addresses are screened and the quote is signed by the Unpair API." : "The quote comes straight from the route, from your browser."}
+        {!api ? "The quote comes straight from the route, from your browser." : custody === "browser" ? "Hop one is screened and signed by the Unpair API." : "Addresses are screened and the quote is signed by the Unpair API."}
         {config.lwdGrpcWebUrl && (
           <>
             {" "}
@@ -554,7 +563,7 @@ function useEstimate(request: EstimateRequest | null): { out: number | null; cos
   return { out: answered?.out ?? null, cost: answered?.cost ?? null };
 }
 
-function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSwapIn: () => void }) {
+function SendOut({ tokens, listed, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; listed: boolean; onStage: (s: HeroStage) => void; onQuiet: (q: boolean) => void; onSwapIn: () => void }) {
   const [mode, setMode] = useState<Mode>("fast");
   const [outId, setOutId] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
@@ -594,7 +603,8 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
   // the route's own quote once tokens and amount are in; the price guess until it answers
   const est = useEstimate(
     zec && b && plan && b.blockchain !== "zec"
-      ? { mode, originAsset: zec.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, recipient: destCheck?.ok ? dest.trim() : "", refundTo: refundVerdict?.ok ? refund.trim() : "", slippageTolerance: slippage }
+      ? // no addresses: the server prices this hop with stand-ins and never gets yours
+        { mode, originAsset: zec.assetId, amount: plan.send.toString(), destinationAsset: b.assetId, slippageTolerance: slippage }
       : null,
   );
   const guess = zec && b && b.price > 0 ? (sendNum * zec.price * (1 - feeFraction)) / b.price : 0;
@@ -633,10 +643,11 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
         recipientType: "DESTINATION_CHAIN",
         deadline: new Date(Date.now() + 30 * 60_000),
       };
-      const r = await screenAndQuote(request, ["zec", b.blockchain]);
+      // screened on the page and quoted by the route itself, so the API never gets the addresses
+      const r = await quotePrivately(request, [[refund.trim(), "zec"], [dest.trim(), b.blockchain]]);
       if ("refused" in r) setError(r.refused);
       else {
-        setStep({ kind: "quoted", quote: r.quote, signed: r.signed, verified: r.verified, token: b });
+        setStep({ kind: "quoted", quote: r.quote, signed: null, verified: null, token: b });
         onStage("out");
       }
     } catch (e) {
@@ -663,7 +674,7 @@ function SendOut({ tokens, onStage, onQuiet, onSwapIn }: { tokens: TokenInfo[]; 
       noValidate
     >
       <CardHead tab="out" onTab={(t) => t === "in" && onSwapIn()} mode={mode} modes={MODES} onMode={setMode} slippage={slippage} slippages={SLIPPAGE_BPS} onSlippage={setSlippage} />
-      <p className="knote">The second hop, from your own Zcash wallet. Pay from your shielded balance, never a transparent one, and wait a while after the first hop.</p>
+      <p className="knote">The second hop, from your own Zcash wallet. Pay from your shielded balance, never a transparent one, and wait a while after the first hop.{listed && " This page asks the route directly, so our API never gets your address."}</p>
       <Legs
         send={
           <Leg
@@ -722,7 +733,9 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
   const [parked, setParked] = useState<string | null>(null);
   const [parkError, setParkError] = useState<string | null>(null);
   const [phone, setPhone] = useState(false);
-  const pollFn = useMemo(() => (depositAddress ? () => (api ? api.status(depositAddress, memo) : client.status(depositAddress, memo)) : null), [depositAddress, memo]);
+  // a hop out names the destination, so its status comes from the route, not the server
+  const viaApi = api && direction === "in" ? api : null;
+  const pollFn = useMemo(() => (depositAddress ? () => (viaApi ? viaApi.status(depositAddress, memo) : client.status(depositAddress, memo)) : null), [depositAddress, memo, viaApi]);
   const [final, setFinal] = useState(false);
   const { value: status, error } = usePoll<StatusResponse>(pollFn, final);
   const current = stateOf(status);
@@ -814,7 +827,7 @@ function OwnTracking({ quote, signed, verified, token, direction, shielded, quie
           <VerifyStrip
             seed={seed}
             code={shortCode(seed)}
-            signedBy={signed && verified ? "Signed by Unpair" : "Signed by the route"}
+            signedBy={signed && verified ? "Signed by Unpair" : "Quote from the route"}
             {...(api && signed ? { onPhone: () => { setPhone(true); if (!parked) void park(); } } : {})}
           />
         )}

@@ -3,8 +3,8 @@
  * clients, the screened quote, and small helpers. No React components here.
  */
 import { useEffect, useRef, useState } from "react";
-import { OneClickClient, OneClickError, clearnetTransport, type QuoteInput, type QuoteResponse } from "@unpair/sdk";
-import { ApiClient, ApiError, verifySignedQuote, type SignedQuote } from "@unpair/client";
+import { ONECLICK_DOCUMENTED_UNAUTHENTICATED_BPS, OneClickClient, OneClickError, clearnetTransport, type QuoteInput, type QuoteResponse } from "@unpair/sdk";
+import { ApiClient, ApiError, screenPrivately, verifySignedQuote, type SignedQuote } from "@unpair/client";
 import { loadConfig } from "./config";
 
 export const config = loadConfig();
@@ -54,6 +54,36 @@ export async function screenAndQuote(request: QuoteInput, chains: [string, strin
   }
   const quote = await client.quote(request);
   return { quote, signed: null, verified: null };
+}
+
+/**
+ * Quote a hop that pays the final destination without telling the Unpair API where it goes. The addresses
+ * are screened here against the API's hashed list, and the quote and its status come from the route itself.
+ * The API gets neither the destination nor the route's deposit address. Our routing fee is in the quote all the same.
+ * No server signs this quote, so it is checked here before anything is paid.
+ */
+export async function quotePrivately(request: QuoteInput, addresses: readonly (readonly [address: string, chain: string])[]): Promise<{ quote: QuoteResponse } | { refused: string }> {
+  if (api) {
+    const v = await screenPrivately(api, addresses);
+    if (!v.allowed) return { refused: v.reason };
+  }
+  const quote = await client.quote(request);
+  const problem = checkQuote(request, quote);
+  return problem ? { refused: problem } : { quote };
+}
+
+/** What is wrong with a route's quote for `request`, or null. The quote must echo the request and keep the fee under the cap. */
+export function checkQuote(request: QuoteInput, quote: QuoteResponse): string | null {
+  const echo = quote.quoteRequest;
+  for (const k of ["originAsset", "destinationAsset", "amount", "recipient", "refundTo"] as const) {
+    if (echo[k] !== request[k]) return "The route's quote does not match what you asked for. Nothing was paid. Try again.";
+  }
+  // our fee, plus at most the surcharge 1Click documents for a call without a partner key
+  const fee = client.feeFromQuoteResponse(quote).breakdown;
+  const bound = (config.fee?.feeBps ?? 0) + ONECLICK_DOCUMENTED_UNAUTHENTICATED_BPS;
+  if (fee && fee.totalBps > bound) return "The route asked a higher fee than this page expects. Nothing was paid. Try again later.";
+  if (!request.dry && !quote.quote.depositAddress) return "The route gave no address to pay.";
+  return null;
 }
 
 export function usePoll<T>(fn: (() => Promise<T>) | null, stop: boolean, everyMs = 7_000): { value: T | null; error: string | null } {
