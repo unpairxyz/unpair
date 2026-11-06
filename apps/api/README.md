@@ -91,7 +91,7 @@ It fits a 1 vCPU, 1 GB box. Put Cloudflare or nginx in front for TLS and the cou
 
 ## Screening adapters
 
-`UNPAIR_SCREENING=http` posts `{address, chain}` to a URL and expects `{"allowed": bool, "reason": string}`. Provider-specific shapes from TRM or Chainalysis are mapped by a small adapter that lives with the deployment config, not in this repo. The denylist mode needs no provider and is what the public instance runs today.
+`UNPAIR_SCREENING=http` posts `{address, chain}` to a URL and expects `{"allowed": bool, "reason": string}`. Provider-specific shapes from TRM or Chainalysis are mapped by a small adapter that lives with the deployment config, not in this repo. The denylist mode needs no provider and is what the public instance runs today, with every digital currency address on the US Treasury's SDN list. Build that file with `node apps/api/scripts/ofac-denylist.mjs > denylist.txt`, copy it to `UNPAIR_SCREENING_DENYLIST` and restart; the API reads it at start. Add your own entries below it.
 
 ## Test
 
