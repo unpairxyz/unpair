@@ -90,7 +90,7 @@ export function InfoTiles({ feePercent = "0.5%", capPercent = "1%", chips }: { f
         <div>
           <h3>CHECK THE MARK</h3>
           <p>Each quote has a mark drawn from our signature. Scan it with your phone on unpair.xyz. Same mark, real quote.</p>
-          <div className="feechip"><b>{feePercent}</b> fee · capped at {capPercent} in open code</div>
+          <div className="feechip"><b>{feePercent}</b> per routed hop, split with 1Click · capped at {capPercent} in open code</div>
         </div>
       </div></section>
     </div>

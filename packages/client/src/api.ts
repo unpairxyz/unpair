@@ -106,6 +106,26 @@ export interface Estimate {
   zec_out: string;
   /** What hop two delivers; the ZEC itself when ZEC is the destination. Null when the route gave no hop-two quote. */
   estimate_out: string | null;
+  /** What the whole route costs, in US dollars at the route's prices, from the quotes. The parts add up to `total_usd`. */
+  cost?: RouteCost;
+}
+
+export interface RouteCost {
+  in_usd: number;
+  out_usd: number;
+  total_usd: number;
+  /** Unpair's routing fee. */
+  unpair_usd: number;
+  /** 1Click's own fee. */
+  oneclick_usd: number;
+  /** Zcash network fee of each hop-two payout. */
+  zcash_usd: number;
+  /** ZEC left in the Zcash wallet: the unused fee reserve, the quiet-mode rest, a piece too small to send. */
+  kept_usd: number;
+  /** The route's price and each chain's gas. */
+  route_usd: number;
+  /** Number of hop-two payouts. */
+  payouts: number;
 }
 
 export interface HostedCreated {
